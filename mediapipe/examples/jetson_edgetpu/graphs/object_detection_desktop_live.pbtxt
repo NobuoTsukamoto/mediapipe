@@ -1,6 +1,6 @@
 # MediaPipe graph that performs object detection with TensorFlow Lite on CPU.
 # Used in the examples in
-# mediapipie/examples/coral:object_detection_cpu.
+# mediapipie/examples/jetson_nano:object_detection_cpu.
 
 # Images on CPU coming into and out of the graph.
 input_stream: "input_video"
@@ -41,8 +41,8 @@ node: {
   output_stream: "IMAGE:transformed_input_video"
   options: {
     [mediapipe.ImageTransformationCalculatorOptions.ext] {
-      output_width: 300
-      output_height: 300
+      output_width: 320
+      output_height: 320
     }
   }
 }
@@ -69,7 +69,7 @@ node {
   output_stream: "TENSORS:detection_tensors"
   options: {
     [mediapipe.TfLiteInferenceCalculatorOptions.ext] {
-      model_path: "mediapipe/examples/coral/models/object-detector-quantized_edgetpu.tflite"
+      model_path: "mediapipe/examples/jetson_edgetpu/models/ssd_mobilenet_edgetpu_coco_edgetpu.tflite"
     }
   }
 }
@@ -84,8 +84,8 @@ node {
       num_layers: 6
       min_scale: 0.2
       max_scale: 0.95
-      input_size_height: 300
-      input_size_width: 300
+      input_size_height: 320
+      input_size_width: 320
       anchor_offset_x: 0.5
       anchor_offset_y: 0.5
       strides: 16
