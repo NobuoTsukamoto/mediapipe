@@ -62,6 +62,8 @@ DEFINE_string(output_video_path, "",
     capture.open(FLAGS_input_video_path);
   } else {
     std::ostringstream gst_string_stream;
+    int width = 640;
+    int height = 480;
 
     gst_string_stream << "nvarguscamerasrc ! video/x-raw(memory:NVMM), "
       "width=" << width << ", height=" << height << ", format=(string)NV12, "
