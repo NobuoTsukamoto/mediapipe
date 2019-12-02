@@ -42,7 +42,7 @@ cc_library(
 cc_binary(
     name = "object_detection_cpu",
     deps = [
-        "//mediapipe/examples/coral:demo_run_graph_main",
+        "//mediapipe/examples/jetson_edgetpu:demo_run_graph_main",
         "//mediapipe/graphs/object_detection:desktop_tflite_calculators",
     ],
 )
@@ -50,7 +50,7 @@ cc_binary(
 cc_binary(
     name = "face_detection_cpu",
     deps = [
-        "//mediapipe/examples/coral:demo_run_graph_main",
+        "//mediapipe/examples/jetson_edgetpu:demo_run_graph_main",
         "//mediapipe/graphs/face_detection:desktop_tflite_calculators",
     ],
 )
