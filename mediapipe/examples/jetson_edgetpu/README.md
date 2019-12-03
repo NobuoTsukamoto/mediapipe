@@ -1,49 +1,75 @@
-# Coral Dev Board Setup (experimental)
+# Jetson Nano + Edge TPU Setup (experimental)
 
-**Dislaimer**: Running MediaPipe on Coral is experimental, and this process may not be exact and is subject to change. These instructions have only been tested on the coral dev board with OS version _mendel day_, and may vary for different devices and workstations.
+**Dislaimer**: Running MediaPipe on Jetson Nano + Edge TPU is experimental, and this process may not be exact and is subject to change.
 
-This file describes how to prepare a Google Coral Dev Board and setup a linux Docker container for building MediaPipe applications that run on Edge TPU.
+This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker container for building MediaPipe applications that run on Edge TPU.
+
+## Changes from the original ([Coral Dev Board Setup](https://github.com/google/mediapipe/tree/master/mediapipe/examples/coral))
+
+* Run with NVIDIA Jetsn Nano + Google Coral Edge TPU USB Accelerator
+* Object detection model is [SSDLite MobileNetEdgeTPU](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md#pixel4-edge-tpu-models)
+
+## HW requirements
+
+* [NVIDIA Jetson Nano](https://developer.nvidia.com/embedded/jetson-nano-developer-kit)
+* [Google Coral Edge TPU USB Accelerator](https://coral.ai/products/accelerator)
+* [Raspberry Pi Camera Module v2](https://www.raspberrypi.org/products/camera-module-v2/)
+
+## Jetson Nano Setup
+
+* Flash your Jetson Nano with [JetPack](https://developer.nvidia.com/embedded/jetpack)  (JetPack 4.2.2 or higher).
+* Connect Pi Camera to Jetson Nano.
+* Software update.
+
+        $ sudo apt update
+        $ sudo apt upgrade
+        $ sudo reboot
+
+* Install the Edge TPU runtime ([see details](https://coral.withgoogle.com/docs/accelerator/get-started/#1-install-the-edge-tpu-runtime)).
+
+        $ sudo apt install curl
+        $ echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
+        $ curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add - 
+        $ sudo apt-get install libedgetpu1-std
+        or
+        $ sudo apt-get install libedgetpu1-max
+
 
 ## Before creating the Docker
 
 * (on host machine) run _setup.sh_ from MediaPipe root directory
 
-        sh mediapipe/examples/coral/setup.sh
+        sh mediapipe/examples/jetson_edgetpu/setup.sh
 
-* Setup the coral device via [here](https://coral.withgoogle.com/docs/dev-board/get-started/), and ensure the _mdt_ command works
-
-* (on coral device) prepare MediaPipe
+* (on Jetson Nano device) prepare MediaPipe
 
         cd ~
         sudo apt-get install git
-        git clone https://github.com/google/mediapipe.git
+        git clone <this repository>
         mkdir mediapipe/bazel-bin
 
-* (on coral device) install opencv 3.2
+* (on Jetson Nano device) find all opencv libs and copy lib files
 
-        sudo apt-get update && apt-get install -y libopencv-dev
+        $ cd ~
+        $ mkdir libopencv
+        $ find /usr/lib/ -name 'libopencv*so' | xargs -i cp -p {} ./libopencv
+        $ tar zcf libopencv.tar.gz libopencv
+        $ cp libopencv.tar.gz /tmp/.
 
-* (on coral device) find all opencv libs
 
-        find /usr/lib/aarch64-linux-gnu/ -name 'libopencv*so'
-
-* (on host machine) copy core opencv libs from coral device to a local folder inside MediaPipe checkout:
+* (on host machine) Remote file copy opencv libs from Jetson Nano device to a local folder inside MediaPipe checkout:
 
         # in root level mediapipe folder #
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_core.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_calib3d.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_features2d.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_highgui.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_imgcodecs.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_imgproc.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_video.so opencv32_arm64_libs
-        mdt pull /usr/lib/aarch64-linux-gnu/libopencv_videoio.so opencv32_arm64_libs
+        $ scp <jetson-user-name>@xxx.xxx.xxx.xxx(jetson-ip-address)):/tmp/libopencv.tar.gz ~/
+        $ tar xf ./libopencv.tar.gz
+        $ cp ./libopencv/libopencv_* ~/mediapipe/opencv32_arm64_libs/
+        $ rm -rf libopencv.tar.gz libopencv/
 
 * (on host machine) Create and start the docker environment
 
         # from mediapipe root level directory #
-        docker build -t coral .
-        docker run -it --name coral coral:latest
+        docker build -t jetson_edgetpu .
+        docker run -it --name jetson_edgetpu jetson_edgetpu:latest
 
 ## Inside the Docker environment
 
@@ -101,37 +127,37 @@ This file describes how to prepare a Google Coral Dev Board and setup a linux Do
 
 * Object detection demo
 
-        bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=aarch64 --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/coral:object_detection_cpu
+        # bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=aarch64 --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/jetson_edgetpu:object_detection_cpu
 
- Copy object_detection_cpu binary to the MediaPipe checkout on the coral device
+ Copy object_detection_cpu binary to the MediaPipe checkout on the Jetson Nano device
 
         # outside docker env, open new terminal on host machine #
-        docker ps
-        docker cp <container-id>:/mediapipe/bazel-bin/mediapipe/examples/coral/object_detection_cpu /tmp/.
-        mdt push /tmp/object_detection_cpu /home/mendel/mediapipe/bazel-bin/.
+        $ sudo docker ps
+        $ sudo docker cp <container-id>:/mediapipe/bazel-bin/mediapipe/examples/jetson_edgetpu/object_detection_cpu /tmp/.
+        $ scp /tmp/object_detection_cpu <jetson-user-name>@xxx.xxx.xxx.xxx(jetson-ip-address):/home/<jetson-user-name>/mediapipe/bazel-bin/.
 
 * Face detection demo
 
-        bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=aarch64 --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/coral:face_detection_cpu
+        # bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=aarch64 --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/jetson_edgetpu:face_detection_cpu
 
- Copy face_detection_cpu binary to the MediaPipe checkout on the coral device
+ Copy face_detection_cpu binary to the MediaPipe checkout on the Jetson nano device
 
         # outside docker env, open new terminal on host machine #
-        docker ps
-        docker cp <container-id>:/mediapipe/bazel-bin/mediapipe/examples/coral/face_detection_cpu /tmp/.
-        mdt push /tmp/face_detection_cpu /home/mendel/mediapipe/bazel-bin/.
+        $ sudo docker ps
+        $ sudo docker cp <container-id>:/mediapipe/bazel-bin/mediapipe/examples/jetson_edgetpu/face_detection_cpu /tmp/.
+        $ scp /tmp/face_detection_cpu <jetson-user-name>@xxx.xxx.xxx.xxx(jetson-ip-address):/home/<jetson-user-name>/mediapipe/bazel-bin/.
 
-## On the coral device (with display)
+## On the Jetson Nano device (with display)
 
      # Object detection
-     cd ~/mediapipe
-     chmod +x bazel-bin/object_detection_cpu
-     export GLOG_logtostderr=1
-     bazel-bin/object_detection_cpu --calculator_graph_config_file=mediapipe/examples/coral/graphs/object_detection_desktop_live.pbtxt
+     $ cd ~/mediapipe
+     $ chmod +x bazel-bin/object_detection_cpu
+     $ export GLOG_logtostderr=1
+     $ bazel-bin/object_detection_cpu --calculator_graph_config_file=mediapipe/examples/jetson_edgetpu/graphs/object_detection_desktop_live.pbtxt
 
      # Face detection
-     cd ~/mediapipe
-     chmod +x bazel-bin/face_detection_cpu
-     export GLOG_logtostderr=1
-     bazel-bin/face_detection_cpu --calculator_graph_config_file=mediapipe/examples/coral/graphs/face_detection_desktop_live.pbtxt
+     $ cd ~/mediapipe
+     $ chmod +x bazel-bin/face_detection_cpu
+     $ export GLOG_logtostderr=1
+     $ bazel-bin/face_detection_cpu --calculator_graph_config_file=mediapipe/examples/jetson_edgetpu/graphs/face_detection_desktop_live.pbtxt
 
