@@ -68,8 +68,8 @@ This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker
 * (on host machine) Create and start the docker environment
 
         # from mediapipe root level directory #
-        docker build -t jetson_edgetpu .
-        docker run -it --name jetson_edgetpu jetson_edgetpu:latest
+        $ sudo docker build -t jetson_edgetpu .
+        $ sudo docker run -it --name jetson_edgetpu jetson_edgetpu:latest
 
 ## Inside the Docker environment
 
@@ -88,7 +88,7 @@ This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker
 
 * Attempt to build hello world (to download external deps)
 
-        bazel build -c opt --define MEDIAPIPE_DISABLE_GPU=1 mediapipe/examples/desktop/hello_world:hello_world
+        # bazel build -c opt --define MEDIAPIPE_DISABLE_GPU=1 mediapipe/examples/desktop/hello_world:hello_world
 
 * Edit  /mediapipe/bazel-mediapipe/external/com_github_glog_glog/src/signalhandler.cc
 
@@ -114,7 +114,7 @@ This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker
 
 * Edit *tflite_inference_calculator.cc*  BUILD rules:
 
-        sed -i 's/\":tflite_inference_calculator_cc_proto\",/\":tflite_inference_calculator_cc_proto\",\n\t\"@edgetpu\/\/:header\",\n\t\"@libedgetpu\/\/:lib\",/g' mediapipe/calculators/tflite/BUILD
+        # sed -i 's/\":tflite_inference_calculator_cc_proto\",/\":tflite_inference_calculator_cc_proto\",\n\t\"@edgetpu\/\/:header\",\n\t\"@libedgetpu\/\/:lib\",/g' mediapipe/calculators/tflite/BUILD
 
       The above command should add
 
