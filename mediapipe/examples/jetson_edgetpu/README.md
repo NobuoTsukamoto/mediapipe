@@ -39,14 +39,14 @@ This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker
 
 * (on host machine) run _setup.sh_ from MediaPipe root directory
 
-        sh mediapipe/examples/jetson_edgetpu/setup.sh
+        $ sh mediapipe/examples/jetson_edgetpu/setup.sh
 
 * (on Jetson Nano device) prepare MediaPipe
 
-        cd ~
-        sudo apt-get install git
-        git clone <this repository>
-        mkdir mediapipe/bazel-bin
+        $ cd ~
+        $ sudo apt-get install git
+        $ git clone <this repository>
+        $ mkdir mediapipe/bazel-bin
 
 * (on Jetson Nano device) find all opencv libs and copy lib files
 
