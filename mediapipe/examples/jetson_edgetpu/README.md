@@ -60,9 +60,9 @@ This file describes how to prepare a NVIDIA Jetson Nano and setup a linux Docker
 * (on host machine) Remote file copy opencv libs from Jetson Nano device to a local folder inside MediaPipe checkout:
 
         # in root level mediapipe folder #
-        $ scp <jetson-user-name>@xxx.xxx.xxx.xxx(jetson-ip-address)):/tmp/libopencv.tar.gz ~/
+        $ scp <jetson-user-name>@xxx.xxx.xxx.xxx(jetson-ip-address):/tmp/libopencv.tar.gz ./
         $ tar xf ./libopencv.tar.gz
-        $ cp ./libopencv/libopencv_* ~/mediapipe/opencv32_arm64_libs/
+        $ cp ./libopencv/libopencv_* ~/mediapipe/opencv_arm64_libs/
         $ rm -rf libopencv.tar.gz libopencv/
 
 * (on host machine) Create and start the docker environment

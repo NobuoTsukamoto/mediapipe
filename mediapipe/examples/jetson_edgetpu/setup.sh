@@ -8,7 +8,7 @@ echo '  sh mediapipe/examples/jetson_edgetpu/setup.sh  '
 
 sleep 3
 
-mkdir opencv32_arm64_libs
+mkdir opencv_arm64_libs
 
 cp mediapipe/examples/jetson_edgetpu/update_sources.sh update_sources.sh
 chmod +x update_sources.sh

@@ -75,9 +75,9 @@ RUN mkdir /bazel && \
 
 RUN apt-get update && apt-get install -y libopencv-dev
 
-# Opencv libs copied from coral device into opencv32_arm64_libs
+# Opencv libs copied from coral device into opencv_arm64_libs
 
-RUN cp opencv32_arm64_libs/* /usr/lib/aarch64-linux-gnu/.
+RUN cp opencv_arm64_libs/* /usr/lib/aarch64-linux-gnu/.
 
 # Edge tpu header and lib
 
