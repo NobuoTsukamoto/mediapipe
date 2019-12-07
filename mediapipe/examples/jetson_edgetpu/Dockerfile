@@ -13,7 +13,7 @@
 # limitations under the License.
 
 #==== ! Prerequisite ! ====
-# $ sh mediapipe/examples/coral/setup.sh
+# $ sh mediapipe/examples/jetson_edgetpu/setup.sh
 #====
 
 # for opencv 3.2 default
