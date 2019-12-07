@@ -152,7 +152,7 @@ node {
   output_stream: "output_detections"
   options: {
     [mediapipe.DetectionLabelIdToTextCalculatorOptions.ext] {
-      label_map_path: "mediapipe/examples/coral/models/object_detection_labelmap.txt"
+      label_map_path: "mediapipe/examples/jetson_edgetpu/models/object_detection_labelmap.txt"
     }
   }
 }
