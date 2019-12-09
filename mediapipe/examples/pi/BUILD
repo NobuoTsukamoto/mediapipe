@@ -54,3 +54,11 @@ cc_binary(
         "//mediapipe/graphs/face_detection:desktop_tflite_calculators",
     ],
 )
+
+cc_binary(
+    name = "traking_cpu",
+    deps = [
+        "//mediapipe/examples/pi:demo_run_graph_main",
+        "//mediapipe/graphs/traking:desktop_tflite_calculators",
+    ],
+)
