@@ -73,7 +73,7 @@ This file describes how to prepare a Raspberry Pi and setup a linux Docker conta
         # in root level mediapipe folder #
         $ scp <pi-user-name>@xxx.xxx.xxx.xxx(pi-ip-address):/tmp/libopencv.tar.gz ./
         $ tar xf ./libopencv.tar.gz
-        $ cp ./libopencv/libopencv_* ~/mediapipe/opencv_arm64_libs/
+        $ cp ./libopencv/libopencv_* ~/mediapipe/opencv_armv7l_libs/
         $ rm -rf libopencv.tar.gz libopencv/
 
 * (on host machine) Create and start the docker environment
