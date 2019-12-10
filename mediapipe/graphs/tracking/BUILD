@@ -41,7 +41,7 @@ cc_library(
         "//mediapipe/calculators/core:packet_resampler_calculator",
         "//mediapipe/graphs/tracking/subgraphs:object_detection_edge_tpu",
         "//mediapipe/graphs/tracking/subgraphs:object_tracking",
-        "//mediapipe/graphs/tracking/subgraphs:renderer_gpu",
+        "//mediapipe/graphs/tracking/subgraphs:renderer_cpu",
         "//mediapipe/calculators/video:opencv_video_decoder_calculator",
         "//mediapipe/calculators/video:opencv_video_encoder_calculator",
     ],
