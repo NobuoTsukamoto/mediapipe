@@ -1,6 +1,6 @@
 # MediaPipe box tracking subgraph.
 
-type: "BoxTrackingSubgraph"
+type: "BoxTrackingCpuSubgraph"
 
 input_stream: "VIDEO:input_video"
 input_stream: "BOXES:start_pos"

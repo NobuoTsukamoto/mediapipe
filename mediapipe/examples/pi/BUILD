@@ -59,6 +59,6 @@ cc_binary(
     name = "traking_cpu",
     deps = [
         "//mediapipe/examples/pi:demo_run_graph_main",
-        "//mediapipe/graphs/traking:desktop_tflite_calculators",
+        "//mediapipe/graphs/tracking:desktop_tflite_calculators",
     ],
 )
