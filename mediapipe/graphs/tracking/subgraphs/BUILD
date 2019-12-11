@@ -37,20 +37,6 @@ mediapipe_simple_subgraph(
 )
 
 mediapipe_simple_subgraph(
-    name = "box_tracking_cpu",
-    graph = "box_tracking_cpu.pbtxt",
-    register_as = "BoxTrackingSubgraph",
-    deps = [
-        "//mediapipe/calculators/image:image_transformation_calculator",
-        "//mediapipe/calculators/video:box_tracker_calculator",
-        "//mediapipe/calculators/video:flow_packager_calculator",
-        "//mediapipe/calculators/video:motion_analysis_calculator",
-        "//mediapipe/framework/stream_handler:immediate_input_stream_handler",
-        "//mediapipe/framework/stream_handler:sync_set_input_stream_handler",
-    ],
-)
-
-mediapipe_simple_subgraph(
     name = "object_tracking",
     graph = "object_tracking.pbtxt",
     register_as = "ObjectTrackingSubgraph",
@@ -59,7 +45,7 @@ mediapipe_simple_subgraph(
         "//mediapipe/calculators/util:detections_to_timed_box_list_calculator",
         "//mediapipe/calculators/video:tracked_detection_manager_calculator",
         "//mediapipe/framework/stream_handler:sync_set_input_stream_handler",
-        "//mediapipe/graphs/tracking/subgraphs:box_tracking_cpu",
+        "//mediapipe/graphs/tracking/subgraphs:box_tracking",
     ],
 )
 
@@ -75,35 +61,6 @@ mediapipe_simple_subgraph(
         "//mediapipe/calculators/tflite:tflite_tensors_to_detections_calculator",
         "//mediapipe/calculators/util:detection_label_id_to_text_calculator",
         "//mediapipe/calculators/util:non_max_suppression_calculator",
-    ],
-)
-
-mediapipe_simple_subgraph(
-    name = "object_detection_edge_tpu",
-    graph = "object_detection_edge_tpu.pbtxt",
-    register_as = "ObjectDetectionEdgeTPUSubgraph",
-    deps = [
-        "//mediapipe/calculators/image:image_transformation_calculator",
-        "//mediapipe/calculators/tflite:ssd_anchors_calculator",
-        "//mediapipe/calculators/tflite:tflite_converter_calculator",
-        "//mediapipe/calculators/tflite:tflite_inference_calculator",
-        "//mediapipe/calculators/tflite:tflite_tensors_to_detections_calculator",
-        "//mediapipe/calculators/util:annotation_overlay_calculator",
-        "//mediapipe/calculators/util:detection_label_id_to_text_calculator",
-        "//mediapipe/calculators/util:detections_to_render_data_calculator",
-        "//mediapipe/calculators/util:non_max_suppression_calculator",
-    ],
-)
-
-
-mediapipe_simple_subgraph(
-    name = "renderer_cpu",
-    graph = "renderer_cpu.pbtxt",
-    register_as = "RendererSubgraph",
-    deps = [
-        "//mediapipe/calculators/util:annotation_overlay_calculator",
-        "//mediapipe/calculators/util:detections_to_render_data_calculator",
-        "//mediapipe/calculators/util:rect_to_render_data_calculator",
     ],
 )
 

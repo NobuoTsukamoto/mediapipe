@@ -31,22 +31,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "desktop_tflite_calculators",
-    deps = [
-        "//mediapipe/calculators/core:concatenate_vector_calculator",
-        "//mediapipe/calculators/core:flow_limiter_calculator",
-        "//mediapipe/calculators/core:previous_loopback_calculator",
-        "//mediapipe/calculators/core:split_vector_calculator",
-        "//mediapipe/calculators/core:packet_resampler_calculator",
-        "//mediapipe/graphs/tracking/subgraphs:object_detection_edge_tpu",
-        "//mediapipe/graphs/tracking/subgraphs:object_tracking",
-        "//mediapipe/graphs/tracking/subgraphs:renderer_cpu",
-        "//mediapipe/calculators/video:opencv_video_decoder_calculator",
-        "//mediapipe/calculators/video:opencv_video_encoder_calculator",
-    ],
-)
-
 mediapipe_binary_graph(
     name = "mobile_gpu_binary_graph",
     graph = "object_detection_tracking_mobile_gpu.pbtxt",
