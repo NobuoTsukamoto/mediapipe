@@ -11,8 +11,8 @@ node: {
   calculator: "ImageTransformationCalculator"
   input_stream: "IMAGE:input_video"
   output_stream: "IMAGE:downscaled_input_video_cpu"
-  node_options: {
-    [type.googleapis.com/mediapipe.ImageTransformationCalculatorOptions] {
+  options: {
+    [mediapipe.ImageTransformationCalculatorOptions.ext] {
       output_width: 240
       output_height: 320
     }
@@ -26,8 +26,8 @@ node: {
   output_stream: "CAMERA:camera_motion"
   output_stream: "FLOW:region_flow"
 
-  node_options: {
-    [type.googleapis.com/mediapipe.MotionAnalysisCalculatorOptions]: {
+  options: {
+    [mediapipe.MotionAnalysisCalculatorOptions.ext] {
       analysis_options {
         analysis_policy: ANALYSIS_POLICY_CAMERA_MOBILE
         flow_options {
@@ -62,8 +62,8 @@ node: {
   input_stream: "CAMERA:camera_motion"
   output_stream: "TRACKING:tracking_data"
 
-  node_options: {
-    [type.googleapis.com/mediapipe.FlowPackagerCalculatorOptions]: {
+  options: {
+    [mediapipe.FlowPackagerCalculatorOptions.ext] {
       flow_packager_options: {
         binary_tracking_data_support: false
       }
@@ -102,8 +102,8 @@ node: {
     }
   }
 
-  node_options: {
-    [type.googleapis.com/mediapipe.BoxTrackerCalculatorOptions]: {
+  options: {
+    [mediapipe.BoxTrackerCalculatorOptions.ext] {
       tracker_options: {
         track_step_options {
           track_object_and_camera: true
