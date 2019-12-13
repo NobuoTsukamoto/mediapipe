@@ -105,8 +105,6 @@ DEFINE_string(output_video_path, "",
       cv::flip(camera_frame, camera_frame, /*flipcode=HORIZONTAL*/ 1);
     }
 
-    auto end = std::chrono::system_clock::now();
-    frame_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     // Wrap Mat into an ImageFrame.
     auto input_frame = absl::make_unique<mediapipe::ImageFrame>(
         mediapipe::ImageFormat::SRGB, camera_frame.cols, camera_frame.rows,
@@ -114,10 +112,14 @@ DEFINE_string(output_video_path, "",
     cv::Mat input_frame_mat = mediapipe::formats::MatView(input_frame.get());
     camera_frame.copyTo(input_frame_mat);
 
+    // Get timestamp.
+    auto end = std::chrono::system_clock::now();
+    frame_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    
     // Send image packet into the graph.
     MP_RETURN_IF_ERROR(graph.AddPacketToInputStream(
         kInputStream, mediapipe::Adopt(input_frame.release())
-                          .At(mediapipe::Timestamp(frame_timestamp++))));
+                          .At(mediapipe::Timestamp(frame_timestamp))));
 
     // Get the graph result packet, or stop if that fails.
     mediapipe::Packet packet;
