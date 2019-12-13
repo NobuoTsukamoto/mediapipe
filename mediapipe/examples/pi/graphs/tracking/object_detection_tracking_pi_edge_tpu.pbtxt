@@ -14,8 +14,8 @@ node {
   calculator: "PacketResamplerCalculator"
   input_stream: "DATA:input_video"
   output_stream: "DATA:throttled_input_video"
-  node_options: {
-    [mediapipe.PacketResamplerCalculatorOptions.ext]] {
+  options: {
+    [mediapipe.PacketResamplerCalculatorOptions] {
       frame_rate: 0.5
     }
   }

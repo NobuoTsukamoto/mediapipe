@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 // An example of sending OpenCV webcam frames into a MediaPipe graph.
+#include <chrono>
 
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
@@ -91,6 +92,8 @@ DEFINE_string(output_video_path, "",
   LOG(INFO) << "Start grabbing and processing frames.";
   size_t frame_timestamp = 0;
   bool grab_frames = true;
+  std::chrono::system_clock::time_point start;
+  start = std::chrono::system_clock::now();
   while (grab_frames) {
     // Capture opencv camera or video frame.
     cv::Mat camera_frame_raw;
@@ -102,6 +105,8 @@ DEFINE_string(output_video_path, "",
       cv::flip(camera_frame, camera_frame, /*flipcode=HORIZONTAL*/ 1);
     }
 
+    auto end = std::chrono::system_clock::now();
+    frame_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     // Wrap Mat into an ImageFrame.
     auto input_frame = absl::make_unique<mediapipe::ImageFrame>(
         mediapipe::ImageFormat::SRGB, camera_frame.cols, camera_frame.rows,
