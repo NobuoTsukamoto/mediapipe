@@ -8,6 +8,7 @@ This file describes how to prepare a Raspberry Pi and setup a linux Docker conta
 
 * Run with Raspberry Pi + Google Coral Edge TPU USB Accelerator
 * Object detection model is [SSDLite MobileNetEdgeTPU](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md#pixel4-edge-tpu-models)
+* Add Object detection and Tracking example ([the original is here](https://github.com/NobuoTsukamoto/mediapipe/blob/master/mediapipe/docs/object_tracking_mobile_gpu.md)).
 
 ## HW requirements
 
@@ -151,6 +152,10 @@ This file describes how to prepare a Raspberry Pi and setup a linux Docker conta
 
         # bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=armv7a --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/pi:face_detection_cpu
 
+* Object Detection and Tracking
+
+        # bazel build -c opt --crosstool_top=@crosstool//:toolchains --compiler=gcc --cpu=armv7a --define MEDIAPIPE_DISABLE_GPU=1 --copt -DMEDIAPIPE_EDGE_TPU --copt=-flax-vector-conversions mediapipe/examples/pi:tracking_cpu
+
  Copy face_detection_cpu binary to the MediaPipe checkout on the Raspberry Pi device
 
         # outside docker env, open new terminal on host machine #
@@ -172,3 +177,8 @@ This file describes how to prepare a Raspberry Pi and setup a linux Docker conta
      $ export GLOG_logtostderr=1
      $ bazel-bin/face_detection_cpu --calculator_graph_config_file=mediapipe/examples/pi/graphs/face_detection_desktop_live.pbtxt
 
+     # Object Detection and Tracking
+     $ cd ~/mediapipe
+     $ chmod +x bazel-bin/tracking_cpu
+     $ export GLOG_logtostderr=1
+     $ bazel-bin/tracking_cpu --calculator_graph_config_file=mediapipe/examples/pi/graphs/tracking/object_detection_tracking_pi_edge_tpu.pbtxt
