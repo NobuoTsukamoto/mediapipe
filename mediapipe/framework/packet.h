@@ -27,6 +27,8 @@
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "mediapipe/framework/deps/no_destructor.h"
+#include "mediapipe/framework/deps/registration.h"
 #include "mediapipe/framework/port.h"
 #include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/logging.h"
@@ -48,7 +50,11 @@ class HolderBase;
 
 Packet Create(HolderBase* holder);
 Packet Create(HolderBase* holder, Timestamp timestamp);
+Packet Create(std::shared_ptr<HolderBase> holder, Timestamp timestamp);
 const HolderBase* GetHolder(const Packet& packet);
+const std::shared_ptr<HolderBase>& GetHolderShared(const Packet& packet);
+mediapipe::StatusOr<Packet> PacketFromDynamicProto(
+    const std::string& type_name, const std::string& serialized);
 }  // namespace packet_internal
 
 // A generic container class which can hold data of any type.  The type of
@@ -105,7 +111,7 @@ class Packet {
   // holder. Otherwise, returns error when the packet can't be consumed.
   // See ConsumeOrCopy for threading requirements and example usage.
   template <typename T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> Consume();
+  mediapipe::StatusOr<std::unique_ptr<T>> Consume();
 
   // Consumes the packet and transfers the ownership of the data to a
   // unique pointer if the packet is the sole owner of a non-foreign
@@ -125,11 +131,11 @@ class Packet {
   //   ASSIGN_OR_RETURN(auto detection, p.ConsumeOrCopy<Detection>());
   //   If you would like to crash on failure (prefer ASSIGN_OR_RETURN):
   //   auto detection = p.ConsumeOrCopy<Detection>().ValueOrDie();
-  //   // In functions which do not return ::mediapipe::Status use an adaptor
+  //   // In functions which do not return mediapipe::Status use an adaptor
   //   // function as the third argument to ASSIGN_OR_RETURN.  In tests,
   //   // use an adaptor which returns void.
   //   ASSIGN_OR_RETURN(auto detection, p.ConsumeOrCopy<Detection>(),
-  //                    _.With([](const ::mediapipe::Status& status) {
+  //                    _.With([](const mediapipe::Status& status) {
   //                      MP_EXPECT_OK(status);
   //                      // Use CHECK_OK to crash and report a usable line
   //                      // number (which the ValueOrDie alternative does not).
@@ -139,13 +145,13 @@ class Packet {
   //
   // Version for non-arrays.
   template <typename T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
+  mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
       bool* was_copied = nullptr,
       typename std::enable_if<!std::is_array<T>::value>::type* = nullptr);
 
   // Version for bounded array.
   template <typename T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
+  mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
       bool* was_copied = nullptr,
       typename std::enable_if<std::is_array<T>::value &&
                               std::extent<T>::value != 0>::type* = nullptr);
@@ -154,7 +160,7 @@ class Packet {
   // delete helper.
   // Version for unbounded array.
   template <typename T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
+  mediapipe::StatusOr<std::unique_ptr<T>> ConsumeOrCopy(
       bool* was_copied = nullptr,
       typename std::enable_if<std::is_array<T>::value &&
                               std::extent<T>::value == 0>::type* = nullptr);
@@ -172,11 +178,11 @@ class Packet {
 
   // Returns an error if the packet does not contain data of type T.
   template <typename T>
-  ::mediapipe::Status ValidateAsType() const;
+  mediapipe::Status ValidateAsType() const;
 
   // Returns an error if the packet is not an instance of
   // a protocol buffer message.
-  ::mediapipe::Status ValidateAsProtoMessageLite() const;
+  mediapipe::Status ValidateAsProtoMessageLite() const;
 
   // Get the type id for the underlying type stored in the Packet.
   // Crashes if IsEmpty() == true.
@@ -201,8 +207,14 @@ class Packet {
   friend Packet packet_internal::Create(packet_internal::HolderBase* holder);
   friend Packet packet_internal::Create(packet_internal::HolderBase* holder,
                                         class Timestamp timestamp);
+  friend Packet packet_internal::Create(
+      std::shared_ptr<packet_internal::HolderBase> holder,
+      class Timestamp timestamp);
   friend const packet_internal::HolderBase* packet_internal::GetHolder(
       const Packet& packet);
+  friend const std::shared_ptr<packet_internal::HolderBase>&
+  packet_internal::GetHolderShared(const Packet& packet);
+
   std::shared_ptr<packet_internal::HolderBase> holder_;
   class Timestamp timestamp_;
 };
@@ -319,6 +331,8 @@ namespace packet_internal {
 
 template <typename T>
 class Holder;
+template <typename T>
+class ForeignHolder;
 
 class HolderBase {
  public:
@@ -346,6 +360,7 @@ class HolderBase {
   // failed or if the requested type is not what is stored.
   template <typename T>
   Holder<T>* As();
+
   // Same as non-const As() function.
   template <typename T>
   const Holder<T>* As() const;
@@ -391,8 +406,8 @@ template <typename T>
 StatusOr<std::vector<const proto_ns::MessageLite*>>
 ConvertToVectorOfProtoMessageLitePtrs(const T* data,
                                       /*is_proto_vector=*/std::false_type) {
-  return ::mediapipe::InvalidArgumentError(absl::StrCat(
-      "The Packet stores \"", typeid(T).name(), "\"",
+  return mediapipe::InvalidArgumentError(absl::StrCat(
+      "The Packet stores \"", tool::TypeId<T>().name(), "\"",
       "which is not convertible to vector<proto_ns::MessageLite*>."));
 }
 
@@ -408,19 +423,80 @@ ConvertToVectorOfProtoMessageLitePtrs(const T* data,
   return result;
 }
 
+// This registry is used to create Holders of the right concrete C++ type given
+// a proto type std::string (which is used as the registration key).
+class MessageHolderRegistry
+    : public GlobalFactoryRegistry<std::unique_ptr<HolderBase>> {};
+
+template <typename T>
+struct is_concrete_proto_t
+    : public std::integral_constant<
+          bool, std::is_base_of<proto_ns::MessageLite, T>{} &&
+                    !std::is_same<proto_ns::MessageLite, T>{} &&
+                    !std::is_same<proto_ns::Message, T>{}> {};
+
+// Registers a message type. T must be a non-cv-qualified concrete proto type.
+template <typename T>
+struct MessageRegistrationImpl {
+  static NoDestructor<mediapipe::RegistrationToken> registration;
+  // This could have been a lambda inside registration's initializer below, but
+  // MSVC has a bug with lambdas, so we put it here as a workaround.
+  static std::unique_ptr<Holder<T>> CreateMessageHolder() {
+    return absl::make_unique<Holder<T>>(new T);
+  }
+};
+
+// Static members of template classes can be defined in the header.
+template <typename T>
+NoDestructor<mediapipe::RegistrationToken>
+    MessageRegistrationImpl<T>::registration(MessageHolderRegistry::Register(
+        T{}.GetTypeName(), MessageRegistrationImpl<T>::CreateMessageHolder));
+
+// For non-Message payloads, this does nothing.
+template <typename T, typename Enable = void>
+struct HolderSupport {
+  static void EnsureStaticInit() {}
+};
+
+// This template ensures that, for each concrete MessageLite subclass that is
+// stored in a Packet, we register a function that allows us to create a
+// Holder with the correct payload type from the proto's type name.
+template <typename T>
+struct HolderSupport<T,
+                     typename std::enable_if<is_concrete_proto_t<T>{}>::type> {
+  // We must use std::remove_cv to ensure we don't try to register Foo twice if
+  // there are Holder<Foo> and Holder<const Foo>. TODO: lift this
+  // up to Holder?
+  using R = MessageRegistrationImpl<typename std::remove_cv<T>::type>;
+  // For the registration static member to be instantiated, it needs to be
+  // referenced in a context that requires the definition to exist (see ISO/IEC
+  // C++ 2003 standard, 14.7.1). Calling this ensures that's the case.
+  // We need two different call-sites to cover proto types for which packets
+  // are only ever created (i.e. the protos are only produced by calculators)
+  // and proto types for which packets are only ever consumed (i.e. the protos
+  // are only consumed by calculators).
+  static void EnsureStaticInit() { CHECK(R::registration.get() != nullptr); }
+};
+
 template <typename T>
 class Holder : public HolderBase {
  public:
-  explicit Holder(const T* ptr) : ptr_(ptr) { SetHolderTypeId<Holder>(); }
+  explicit Holder(const T* ptr) : ptr_(ptr) {
+    HolderSupport<T>::EnsureStaticInit();
+    SetHolderTypeId<Holder>();
+  }
   ~Holder() override { delete_helper(); }
-  const T& data() const { return *ptr_; }
+  const T& data() const {
+    HolderSupport<T>::EnsureStaticInit();
+    return *ptr_;
+  }
   size_t GetTypeId() const final { return tool::GetTypeHash<T>(); }
   // Releases the underlying data pointer and transfers the ownership to a
   // unique pointer.
   // This method is dangerous and is only used by Packet::Consume() if the
   // packet is the only owner of the holder.
   template <typename U = T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> Release(
+  mediapipe::StatusOr<std::unique_ptr<T>> Release(
       typename std::enable_if<!std::is_array<U>::value ||
                               std::extent<U>::value != 0>::type* = 0) {
     // Since C++ doesn't allow virtual, templated functions, check holder
@@ -437,10 +513,10 @@ class Holder : public HolderBase {
   // TODO: support unbounded array after fixing the bug in holder's
   // delete helper.
   template <typename U = T>
-  ::mediapipe::StatusOr<std::unique_ptr<T>> Release(
+  mediapipe::StatusOr<std::unique_ptr<T>> Release(
       typename std::enable_if<std::is_array<U>::value &&
                               std::extent<U>::value == 0>::type* = 0) {
-    return ::mediapipe::InternalError("Release T[] isn't supported.");
+    return mediapipe::InternalError("Release T[] isn't supported.");
   }
   const std::string DebugTypeName() const final {
     return MediaPipeTypeStringOrDemangled<T>();
@@ -504,8 +580,8 @@ class ForeignHolder : public Holder<T> {
     this->ptr_ = nullptr;
   }
   // Foreign holder can't release data pointer without ownership.
-  ::mediapipe::StatusOr<std::unique_ptr<T>> Release() {
-    return ::mediapipe::InternalError(
+  mediapipe::StatusOr<std::unique_ptr<T>> Release() {
+    return mediapipe::InternalError(
         "Foreign holder can't release data ptr without ownership.");
   }
 };
@@ -532,11 +608,11 @@ const Holder<T>* HolderBase::As() const {
 
 inline Packet::Packet(const Packet& packet)
     : holder_(packet.holder_), timestamp_(packet.timestamp_) {
-  VLOG(2) << "Using copy constructor of " << packet.DebugString();
+  VLOG(4) << "Using copy constructor of " << packet.DebugString();
 }
 
 inline Packet& Packet::operator=(const Packet& packet) {
-  VLOG(2) << "Using copy assignment operator of " << packet.DebugString();
+  VLOG(4) << "Using copy assignment operator of " << packet.DebugString();
   if (this != &packet) {
     holder_ = packet.holder_;
     timestamp_ = packet.timestamp_;
@@ -545,40 +621,40 @@ inline Packet& Packet::operator=(const Packet& packet) {
 }
 
 template <typename T>
-inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::Consume() {
+inline mediapipe::StatusOr<std::unique_ptr<T>> Packet::Consume() {
   // If type validation fails, returns error.
   MP_RETURN_IF_ERROR(ValidateAsType<T>());
   // Clients who use this function are responsible for ensuring that no
   // other thread is doing anything with this Packet.
   if (holder_.unique()) {
-    VLOG(1) << "Consuming the data of " << DebugString();
-    ::mediapipe::StatusOr<std::unique_ptr<T>> release_result =
+    VLOG(2) << "Consuming the data of " << DebugString();
+    mediapipe::StatusOr<std::unique_ptr<T>> release_result =
         holder_->As<T>()->Release();
     if (release_result.ok()) {
-      VLOG(1) << "Setting " << DebugString() << " to empty.";
+      VLOG(2) << "Setting " << DebugString() << " to empty.";
       holder_.reset();
     }
     return release_result;
   }
   // If packet isn't the sole owner of the holder, returns kFailedPrecondition
   // error with message.
-  return ::mediapipe::Status(::mediapipe::StatusCode::kFailedPrecondition,
-                             "Packet isn't the sole owner of the holder.");
+  return mediapipe::Status(mediapipe::StatusCode::kFailedPrecondition,
+                           "Packet isn't the sole owner of the holder.");
 }
 
 template <typename T>
-inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
+inline mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
     bool* was_copied,
     typename std::enable_if<!std::is_array<T>::value>::type*) {
   MP_RETURN_IF_ERROR(ValidateAsType<T>());
   // If holder is the sole owner of the underlying data, consumes this packet.
   if (!holder_->HolderIsOfType<packet_internal::ForeignHolder<T>>() &&
       holder_.unique()) {
-    VLOG(1) << "Consuming the data of " << DebugString();
-    ::mediapipe::StatusOr<std::unique_ptr<T>> release_result =
+    VLOG(2) << "Consuming the data of " << DebugString();
+    mediapipe::StatusOr<std::unique_ptr<T>> release_result =
         holder_->As<T>()->Release();
     if (release_result.ok()) {
-      VLOG(1) << "Setting " << DebugString() << " to empty.";
+      VLOG(2) << "Setting " << DebugString() << " to empty.";
       holder_.reset();
     }
     if (was_copied) {
@@ -586,9 +662,9 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
     }
     return release_result;
   }
-  VLOG(1) << "Copying the data of " << DebugString();
+  VLOG(2) << "Copying the data of " << DebugString();
   std::unique_ptr<T> data_ptr = absl::make_unique<T>(Get<T>());
-  VLOG(1) << "Setting " << DebugString() << " to empty.";
+  VLOG(2) << "Setting " << DebugString() << " to empty.";
   holder_.reset();
   if (was_copied) {
     *was_copied = true;
@@ -597,7 +673,7 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
 }
 
 template <typename T>
-inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
+inline mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
     bool* was_copied,
     typename std::enable_if<std::is_array<T>::value &&
                             std::extent<T>::value != 0>::type*) {
@@ -605,11 +681,11 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
   // If holder is the sole owner of the underlying data, consumes this packet.
   if (!holder_->HolderIsOfType<packet_internal::ForeignHolder<T>>() &&
       holder_.unique()) {
-    VLOG(1) << "Consuming the data of " << DebugString();
-    ::mediapipe::StatusOr<std::unique_ptr<T>> release_result =
+    VLOG(2) << "Consuming the data of " << DebugString();
+    mediapipe::StatusOr<std::unique_ptr<T>> release_result =
         holder_->As<T>()->Release();
     if (release_result.ok()) {
-      VLOG(1) << "Setting " << DebugString() << " to empty.";
+      VLOG(2) << "Setting " << DebugString() << " to empty.";
       holder_.reset();
     }
     if (was_copied) {
@@ -617,7 +693,7 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
     }
     return release_result;
   }
-  VLOG(1) << "Copying the data of " << DebugString();
+  VLOG(2) << "Copying the data of " << DebugString();
   const auto& original_array = Get<T>();
   // Type T is bounded array type, such as int[N] and float[M].
   // The new operator creates a new bounded array.
@@ -625,7 +701,7 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
   // Copies bounded array data into data_ptr.
   std::copy(std::begin(original_array), std::end(original_array),
             std::begin(*data_ptr));
-  VLOG(1) << "Setting " << DebugString() << " to empty.";
+  VLOG(2) << "Setting " << DebugString() << " to empty.";
   holder_.reset();
   if (was_copied) {
     *was_copied = true;
@@ -634,22 +710,22 @@ inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
 }
 
 template <typename T>
-inline ::mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
+inline mediapipe::StatusOr<std::unique_ptr<T>> Packet::ConsumeOrCopy(
     bool* was_copied,
     typename std::enable_if<std::is_array<T>::value &&
                             std::extent<T>::value == 0>::type*) {
-  return ::mediapipe::InternalError("Unbounded array isn't supported.");
+  return mediapipe::InternalError("Unbounded array isn't supported.");
 }
 
 inline Packet::Packet(Packet&& packet) {
-  VLOG(2) << "Using move constructor of " << packet.DebugString();
+  VLOG(4) << "Using move constructor of " << packet.DebugString();
   holder_ = std::move(packet.holder_);
   timestamp_ = packet.timestamp_;
   packet.timestamp_ = Timestamp::Unset();
 }
 
 inline Packet& Packet::operator=(Packet&& packet) {
-  VLOG(2) << "Using move assignment operator of " << packet.DebugString();
+  VLOG(4) << "Using move assignment operator of " << packet.DebugString();
   if (this != &packet) {
     holder_ = std::move(packet.holder_);
     timestamp_ = packet.timestamp_;
@@ -670,25 +746,25 @@ inline const T& Packet::Get() const {
   packet_internal::Holder<T>* holder = IsEmpty() ? nullptr : holder_->As<T>();
   if (holder == nullptr) {
     // Produce a good error message.
-    ::mediapipe::Status status = ValidateAsType<T>();
+    mediapipe::Status status = ValidateAsType<T>();
     LOG(FATAL) << "Packet::Get() failed: " << status.message();
   }
   return holder->data();
 }
 
 template <typename T>
-::mediapipe::Status Packet::ValidateAsType() const {
+mediapipe::Status Packet::ValidateAsType() const {
   if (ABSL_PREDICT_FALSE(IsEmpty())) {
-    return ::mediapipe::InternalError(absl::StrCat(
+    return mediapipe::InternalError(absl::StrCat(
         "Expected a Packet of type: ", MediaPipeTypeStringOrDemangled<T>(),
         ", but received an empty Packet."));
   }
   if (ABSL_PREDICT_FALSE(holder_->As<T>() == nullptr)) {
-    return ::mediapipe::InvalidArgumentError(absl::StrCat(
+    return mediapipe::InvalidArgumentError(absl::StrCat(
         "The Packet stores \"", holder_->DebugTypeName(), "\", but \"",
         MediaPipeTypeStringOrDemangled<T>(), "\" was requested."));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 inline Timestamp Packet::Timestamp() const { return timestamp_; }
@@ -712,6 +788,15 @@ inline bool operator==(const Packet& p1, const Packet& p2) {
 inline bool operator!=(const Packet& p1, const Packet& p2) {
   return !(p1 == p2);
 }
+
+namespace packet_internal {
+
+inline const std::shared_ptr<HolderBase>& GetHolderShared(
+    const Packet& packet) {
+  return packet.holder_;
+}
+
+}  // namespace packet_internal
 
 }  // namespace mediapipe
 

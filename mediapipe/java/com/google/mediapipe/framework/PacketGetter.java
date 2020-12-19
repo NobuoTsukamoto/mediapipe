@@ -16,7 +16,9 @@ package com.google.mediapipe.framework;
 
 import com.google.common.base.Preconditions;
 import com.google.common.flogger.FluentLogger;
+import com.google.mediapipe.framework.ProtoUtil.SerializedMessage;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.MessageLite;
 import com.google.protobuf.Parser;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -115,6 +117,13 @@ public final class PacketGetter {
 
   public static byte[] getProtoBytes(final Packet packet) {
     return nativeGetProtoBytes(packet.getNativeHandle());
+  }
+
+  public static <T extends MessageLite> T getProto(final Packet packet, Class<T> clazz)
+      throws InvalidProtocolBufferException {
+    SerializedMessage result = new SerializedMessage();
+    nativeGetProto(packet.getNativeHandle(), result);
+    return ProtoUtil.unpack(result, clazz);
   }
 
   public static short[] getInt16Vector(final Packet packet) {
@@ -272,6 +281,10 @@ public final class PacketGetter {
    * <p>Note: in order for the application to be able to use the texture, its GL context must be
    * linked with MediaPipe's. This is ensured by calling {@link Graph#createGlRunner(String,long)}
    * with the native handle to the application's GL context as the second argument.
+   *
+   * <p>The returned GraphTextureFrame must be released by the caller. If this method is called
+   * multiple times, each returned GraphTextureFrame is an independent reference to the underlying
+   * texture data, and must be released individually.
    */
   public static GraphTextureFrame getTextureFrame(final Packet packet) {
     return new GraphTextureFrame(
@@ -291,6 +304,7 @@ public final class PacketGetter {
   private static native String nativeGetString(long nativePacketHandle);
   private static native byte[] nativeGetBytes(long nativePacketHandle);
   private static native byte[] nativeGetProtoBytes(long nativePacketHandle);
+  private static native void nativeGetProto(long nativePacketHandle, SerializedMessage result);
   private static native short[] nativeGetInt16Vector(long nativePacketHandle);
   private static native int[] nativeGetInt32Vector(long nativePacketHandle);
   private static native long[] nativeGetInt64Vector(long nativePacketHandle);

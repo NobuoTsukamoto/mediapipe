@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "Eigen/Core"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_set.h"
 #include "absl/memory/memory.h"
 #include "mediapipe/framework/port/logging.h"
@@ -332,6 +333,15 @@ struct RegionFlowComputation::FrameTrackingData {
   // use -1 if no such track id exists. Only used for long feature tracks.
   std::vector<int> track_ids;
 
+  // Stores all the tracked ids that has been discarded actively in this frame.
+  // This information will be popluated via RegionFlowFeatureList, so that the
+  // downstreaming modules can receive it and use it to avoid misjudgement on
+  // tracking continuity.
+  // Discard reason:
+  // (1) A tracked feature has too long track, which might create drift.
+  // (2) A tracked feature in a highly densed area, which provides littel value.
+  std::vector<int> actively_discarded_tracked_ids;
+
   // 1:1 mapping w.r.t. features. Stores the original patch neighborhood when
   // the feature was extracted for the first time, that is for features with
   // assigned track_id (>= 0) the data refers to a neighborhood in an earlier
@@ -548,7 +558,7 @@ struct RegionFlowComputation::LongTrackData {
     float motion_mag = 0;  // Smoothed average motion. -1 for unknown.
   };
 
-  std::unordered_map<int, TrackInfo> track_info;
+  absl::flat_hash_map<int, TrackInfo> track_info;
 };
 
 template <class T>
@@ -962,7 +972,7 @@ bool RegionFlowComputation::InitFrame(const cv::Mat& source,
         LOG(ERROR) << "Expecting 3 channel input for RGB.";
         return false;
       }
-      cv::cvtColor(*source_ptr, dest_frame, CV_RGB2GRAY);
+      cv::cvtColor(*source_ptr, dest_frame, cv::COLOR_RGB2GRAY);
       break;
 
     case RegionFlowComputationOptions::FORMAT_BGR:
@@ -970,7 +980,7 @@ bool RegionFlowComputation::InitFrame(const cv::Mat& source,
         LOG(ERROR) << "Expecting 3 channel input for BGR.";
         return false;
       }
-      cv::cvtColor(*source_ptr, dest_frame, CV_BGR2GRAY);
+      cv::cvtColor(*source_ptr, dest_frame, cv::COLOR_BGR2GRAY);
       break;
 
     case RegionFlowComputationOptions::FORMAT_RGBA:
@@ -978,7 +988,7 @@ bool RegionFlowComputation::InitFrame(const cv::Mat& source,
         LOG(ERROR) << "Expecting 4 channel input for RGBA.";
         return false;
       }
-      cv::cvtColor(*source_ptr, dest_frame, CV_RGBA2GRAY);
+      cv::cvtColor(*source_ptr, dest_frame, cv::COLOR_RGBA2GRAY);
       break;
 
     case RegionFlowComputationOptions::FORMAT_BGRA:
@@ -986,7 +996,7 @@ bool RegionFlowComputation::InitFrame(const cv::Mat& source,
         LOG(ERROR) << "Expecting 4 channel input for BGRA.";
         return false;
       }
-      cv::cvtColor(*source_ptr, dest_frame, CV_BGRA2GRAY);
+      cv::cvtColor(*source_ptr, dest_frame, cv::COLOR_BGRA2GRAY);
       break;
 
     case RegionFlowComputationOptions::FORMAT_GRAYSCALE:
@@ -1446,6 +1456,12 @@ void RegionFlowComputation::ComputeRegionFlow(
     if (data1 != nullptr) {
       feature_list->set_timestamp_usec(data1->timestamp_usec);
     }
+  }
+  if (data1 != nullptr) {
+    *feature_list->mutable_actively_discarded_tracked_ids() = {
+        data1->actively_discarded_tracked_ids.begin(),
+        data1->actively_discarded_tracked_ids.end()};
+    data1->actively_discarded_tracked_ids.clear();
   }
 
   feature_list->set_match_frame((to - from) * (invert_flow ? -1 : 1));
@@ -2374,6 +2390,7 @@ void RegionFlowComputation::ExtractFeatures(
 
       if (data->frame_num - start_frame >= lower_max_track_length &&
           distribution(rand_gen) <= drop_permil) {
+        data->actively_discarded_tracked_ids.push_back(track_id);
         continue;
       }
 
@@ -2385,6 +2402,7 @@ void RegionFlowComputation::ExtractFeatures(
       // Value of 2 improves number of connected features.
       constexpr int kMaxFeaturesPerBin = 1;
       if (mask.at<uint8>(mask_y, mask_x) >= kMaxFeaturesPerBin) {
+        data->actively_discarded_tracked_ids.push_back(track_id);
         continue;
       }
 
@@ -2999,7 +3017,7 @@ void RegionFlowComputation::ComputeBlockBasedFlow(
   if (!feature_list->empty() && options_.median_magnitude_bounds() > 0) {
     std::vector<float> motion_magnitudes;
     motion_magnitudes.reserve(feature_list->size());
-    for (auto feature : *feature_list) {
+    for (const auto& feature : *feature_list) {
       motion_magnitudes.push_back(feature.flow.Norm2());
     }
     auto median_iter = motion_magnitudes.begin() + motion_magnitudes.size() / 2;
@@ -3279,7 +3297,7 @@ void RegionFlowComputation::RegionFlowFeatureListToRegionFlow(
   }
 
   // Add feature according smallest block width and height to regions.
-  for (auto feature : feature_list.feature()) {
+  for (const auto& feature : feature_list.feature()) {
     const int x = static_cast<int>(feature.x());
     const int y = static_cast<int>(feature.y());
     // Guard, in case equation is wrong.

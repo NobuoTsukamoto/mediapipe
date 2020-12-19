@@ -27,6 +27,7 @@
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/profiler/profiler_resource_util.h"
+#include "mediapipe/framework/tool/name_util.h"
 #include "mediapipe/framework/tool/tag_map.h"
 #include "mediapipe/framework/tool/validate_name.h"
 
@@ -133,7 +134,7 @@ void GraphProfiler::Initialize(
   for (int node_id = 0;
        node_id < validated_graph_config.CalculatorInfos().size(); ++node_id) {
     std::string node_name =
-        CanonicalNodeName(validated_graph_config.Config(), node_id);
+        tool::CanonicalNodeName(validated_graph_config.Config(), node_id);
     CalculatorProfile profile;
     profile.set_name(node_name);
     InitializeTimeHistogram(interval_size_usec, num_intervals,
@@ -198,11 +199,15 @@ void GraphProfiler::Reset() {
 }
 
 // Begins profiling for a single graph run.
-::mediapipe::Status GraphProfiler::Start(::mediapipe::Executor* executor) {
+mediapipe::Status GraphProfiler::Start(mediapipe::Executor* executor) {
   // If specified, start periodic profile output while the graph runs.
   Resume();
   if (is_tracing_ && IsTraceIntervalEnabled(profiler_config_, tracer()) &&
       executor != nullptr) {
+    // Inform the user via logging the path to the trace logs.
+    ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
+    LOG(INFO) << "trace_log_path: " << trace_log_path;
+
     is_running_ = true;
     executor->Schedule([this] {
       absl::Time deadline = clock_->TimeNow() + tracer()->GetTraceLogInterval();
@@ -215,18 +220,18 @@ void GraphProfiler::Reset() {
       }
     });
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 // Ends profiling for a single graph run.
-::mediapipe::Status GraphProfiler::Stop() {
+mediapipe::Status GraphProfiler::Stop() {
   is_running_ = false;
   Pause();
   // If specified, write a final profile.
   if (IsTraceLogEnabled(profiler_config_)) {
     MP_RETURN_IF_ERROR(WriteProfile());
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 void GraphProfiler::LogEvent(const TraceEvent& event) {
@@ -276,7 +281,7 @@ void GraphProfiler::AddPacketInfo(const TraceEvent& packet_info) {
                         production_time_usec, production_time_usec);
 }
 
-::mediapipe::Status GraphProfiler::GetCalculatorProfiles(
+mediapipe::Status GraphProfiler::GetCalculatorProfiles(
     std::vector<CalculatorProfile>* profiles) const {
   absl::ReaderMutexLock lock(&profiler_mutex_);
   RET_CHECK(is_initialized_)
@@ -284,7 +289,7 @@ void GraphProfiler::AddPacketInfo(const TraceEvent& packet_info) {
   for (auto& entry : calculator_profiles_) {
     profiles->push_back(entry.second);
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 void GraphProfiler::InitializeTimeHistogram(int64 interval_size_usec,
@@ -427,7 +432,13 @@ void GraphProfiler::SetCloseRuntime(const CalculatorContext& calculator_context,
 
 void GraphProfiler::AddTimeSample(int64 start_time_usec, int64 end_time_usec,
                                   TimeHistogram* histogram) {
-  CHECK_GE(end_time_usec, start_time_usec);
+  if (end_time_usec < start_time_usec) {
+    LOG(ERROR) << absl::Substitute(
+        "end_time_usec ($0) is < start_time_usec ($1)", end_time_usec,
+        start_time_usec);
+    return;
+  }
+
   int64 time_usec = end_time_usec - start_time_usec;
   histogram->set_total(histogram->total() + time_usec);
   int64 interval_index = time_usec / histogram->interval_size_usec();
@@ -555,9 +566,9 @@ void AssignNodeNames(GraphProfile* profile) {
   }
 }
 
-::mediapipe::StatusOr<std::string> GraphProfiler::GetTraceLogPath() {
+mediapipe::StatusOr<std::string> GraphProfiler::GetTraceLogPath() {
   if (!IsTraceLogEnabled(profiler_config_)) {
-    return ::mediapipe::InternalError(
+    return mediapipe::InternalError(
         "Trace log writing is disabled, unable to get trace_log_path.");
   }
   if (profiler_config_.trace_log_path().empty()) {
@@ -570,14 +581,12 @@ void AssignNodeNames(GraphProfile* profile) {
   }
 }
 
-::mediapipe::Status GraphProfiler::WriteProfile() {
+mediapipe::Status GraphProfiler::WriteProfile() {
   if (profiler_config_.trace_log_disabled()) {
     // Logging is disabled, so we can exit writing without error.
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
   ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
-  // Inform the user via logging the path to the trace logs.
-  LOG(INFO) << "trace_log_path: " << trace_log_path;
   int log_interval_count = GetLogIntervalCount(profiler_config_);
   int log_file_count = GetLogFileCount(profiler_config_);
 
@@ -589,7 +598,7 @@ void AssignNodeNames(GraphProfile* profile) {
       absl::Microseconds(profiler_config_.trace_log_margin_usec());
   GraphProfile profile;
   GraphTrace* trace = profile.add_graph_trace();
-  if (!profiler_config_.trace_log_duration_events()) {
+  if (!profiler_config_.trace_log_instant_events()) {
     tracer()->GetTrace(previous_log_end_time_, end_time, trace);
   } else {
     tracer()->GetLog(previous_log_end_time_, end_time, trace);
@@ -597,7 +606,7 @@ void AssignNodeNames(GraphProfile* profile) {
   previous_log_end_time_ = end_time;
   // If there are no trace events, skip log writing.
   if (is_tracing_ && trace->calculator_trace().empty()) {
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
   // Record the latest CalculatorProfiles.

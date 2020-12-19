@@ -94,7 +94,12 @@ GlContext::StatusOrGlContext GlContext::Create(EGLContext share_context,
       EGL_RENDERABLE_TYPE, gl_version == 3 ? EGL_OPENGL_ES3_BIT_KHR
                                            : EGL_OPENGL_ES2_BIT,
       // Allow rendering to pixel buffers or directly to windows.
-      EGL_SURFACE_TYPE, EGL_PBUFFER_BIT | EGL_WINDOW_BIT,
+      EGL_SURFACE_TYPE,
+#ifdef MEDIAPIPE_OMIT_EGL_WINDOW_BIT
+      EGL_PBUFFER_BIT,
+#else
+      EGL_PBUFFER_BIT | EGL_WINDOW_BIT,
+#endif
       EGL_RED_SIZE, 8,
       EGL_GREEN_SIZE, 8,
       EGL_BLUE_SIZE, 8,
@@ -114,7 +119,7 @@ GlContext::StatusOrGlContext GlContext::Create(EGLContext share_context,
            << eglGetError();
   }
   if (!num_configs) {
-    return ::mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
+    return mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
            << "eglChooseConfig() returned no matching EGL configuration for "
            << "RGBA8888 D16 ES" << gl_version << " request. ";
   }
@@ -177,6 +182,27 @@ GlContext::StatusOrGlContext GlContext::Create(EGLContext share_context,
 }
 
 void GlContext::DestroyContext() {
+#ifdef __ANDROID__
+  if (HasContext()) {
+    // Detach the current program to work around b/166322604.
+    auto detach_program = [this] {
+      GlContext::ContextBinding saved_context;
+      GetCurrentContextBinding(&saved_context);
+      // Note: cannot use ThisContextBinding because it calls shared_from_this,
+      // which is not available during destruction.
+      if (eglMakeCurrent(display_, surface_, surface_, context_)) {
+        glUseProgram(0);
+      } else {
+        LOG(ERROR) << "eglMakeCurrent() returned error " << std::showbase
+                   << std::hex << eglGetError();
+      }
+      return SetCurrentContextBinding(saved_context);
+    };
+    auto status = thread_ ? thread_->Run(detach_program) : detach_program();
+    LOG_IF(ERROR, !status.ok()) << status;
+  }
+#endif  // __ANDROID__
+
   if (thread_) {
     // Delete thread-local storage.
     // TODO: in theory our EglThreadExitCallback should suffice for

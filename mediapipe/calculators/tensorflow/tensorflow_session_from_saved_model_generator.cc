@@ -17,7 +17,7 @@
 #if !defined(__ANDROID__)
 #include "mediapipe/framework/port/file_helpers.h"
 #endif
-#include "absl/strings/substitute.h"
+#include "absl/strings/str_replace.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_saved_model_generator.pb.h"
 #include "mediapipe/framework/deps/file_path.h"
@@ -37,9 +37,9 @@ static constexpr char kStringSavedModelPath[] = "STRING_SAVED_MODEL_PATH";
 
 // Given the path to a directory containing multiple tensorflow saved models
 // in subdirectories, replaces path with the alphabetically last subdirectory.
-::mediapipe::Status GetLatestDirectory(std::string* path) {
+mediapipe::Status GetLatestDirectory(std::string* path) {
 #if defined(__ANDROID__)
-  return ::mediapipe::UnimplementedError(
+  return mediapipe::UnimplementedError(
       "GetLatestDirectory is not implemented on Android");
 #else
   std::vector<std::string> saved_models;
@@ -49,14 +49,15 @@ static constexpr char kStringSavedModelPath[] = "STRING_SAVED_MODEL_PATH";
       << "No exported bundles found in " << path;
   ::std::sort(saved_models.begin(), saved_models.end());
   *path = std::string(file::Dirname(saved_models.back()));
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 #endif
 }
 
-// If options.convert_signature_to_tags() will convert letters to uppercase
-// and replace /'s with _'s. If set, this enables the standard SavedModel
-// classification, regression, and prediction signatures to be used as
-// uppercase INPUTS and OUTPUTS tags for streams.
+// If options.convert_signature_to_tags() is set, will convert letters to
+// uppercase and replace /'s and -'s with _'s. This enables the standard
+// SavedModel classification, regression, and prediction signatures to be used
+// as uppercase INPUTS and OUTPUTS tags for streams and supports other common
+// patterns.
 const std::string MaybeConvertSignatureToTag(
     const std::string& name,
     const TensorFlowSessionFromSavedModelGeneratorOptions& options) {
@@ -65,7 +66,8 @@ const std::string MaybeConvertSignatureToTag(
     output.resize(name.length());
     std::transform(name.begin(), name.end(), output.begin(),
                    [](unsigned char c) { return std::toupper(c); });
-    output = absl::Substitute(output, "/", "_");
+    output = absl::StrReplaceAll(output, {{"/", "_"}});
+    output = absl::StrReplaceAll(output, {{"-", "_"}});
     return output;
   } else {
     return name;
@@ -81,7 +83,7 @@ const std::string MaybeConvertSignatureToTag(
 // ready for execution and a map between tags and tensor names.
 class TensorFlowSessionFromSavedModelGenerator : public PacketGenerator {
  public:
-  static ::mediapipe::Status FillExpectations(
+  static mediapipe::Status FillExpectations(
       const PacketGeneratorOptions& extendable_options,
       PacketTypeSet* input_side_packets, PacketTypeSet* output_side_packets) {
     const TensorFlowSessionFromSavedModelGeneratorOptions& options =
@@ -99,10 +101,10 @@ class TensorFlowSessionFromSavedModelGenerator : public PacketGenerator {
     }
     // A TensorFlow model loaded and ready for use along with tensor
     output_side_packets->Tag("SESSION").Set<TensorFlowSession>();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
-  static ::mediapipe::Status Generate(
+  static mediapipe::Status Generate(
       const PacketGeneratorOptions& extendable_options,
       const PacketSet& input_side_packets, PacketSet* output_side_packets) {
     const TensorFlowSessionFromSavedModelGeneratorOptions& options =
@@ -119,7 +121,7 @@ class TensorFlowSessionFromSavedModelGenerator : public PacketGenerator {
     // Set user specified tags properly.
     // If no tags specified will use tensorflow::kSavedModelTagServe by default.
     std::unordered_set<std::string> tags_set;
-    for (std::string tag : options.saved_model_tag()) {
+    for (const std::string& tag : options.saved_model_tag()) {
       tags_set.insert(tag);
     }
     if (tags_set.empty()) {
@@ -127,17 +129,15 @@ class TensorFlowSessionFromSavedModelGenerator : public PacketGenerator {
     }
 
     tensorflow::RunOptions run_options;
-    // In the future, could construct session options from the options proto.
     tensorflow::SessionOptions session_options;
+    session_options.config = options.session_config();
     auto saved_model = absl::make_unique<tensorflow::SavedModelBundle>();
     ::tensorflow::Status status = tensorflow::LoadSavedModel(
         session_options, run_options, path, tags_set, saved_model.get());
     if (!status.ok()) {
-      return ::mediapipe::Status(
-          static_cast<::mediapipe::StatusCode>(status.code()),
-          status.error_message());
+      return mediapipe::Status(
+          static_cast<mediapipe::StatusCode>(status.code()), status.ToString());
     }
-
     auto session = absl::make_unique<TensorFlowSession>();
     session->session = std::move(saved_model->session);
 
@@ -154,7 +154,7 @@ class TensorFlowSessionFromSavedModelGenerator : public PacketGenerator {
     }
 
     output_side_packets->Tag("SESSION") = Adopt(session.release());
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 };
 REGISTER_PACKET_GENERATOR(TensorFlowSessionFromSavedModelGenerator);

@@ -46,6 +46,7 @@ class OutputStreamHandler {
   // ids of upstream sources that affect it.
   typedef std::unordered_map<std::string, std::unordered_set<int>>
       OutputStreamToSourcesMap;
+  typedef internal::Collection<OutputStreamManager*> OutputStreamManagerSet;
 
   // The constructor of the OutputStreamHandler takes four arguments.
   // The tag_map argument holds the information needed for tag/index retrieval
@@ -75,11 +76,11 @@ class OutputStreamHandler {
   // OutputStreamHandler::output_stream_managers_ (meaning it should
   // point to somewhere in the middle of the master flat array of all
   // output stream managers).
-  ::mediapipe::Status InitializeOutputStreamManagers(
+  mediapipe::Status InitializeOutputStreamManagers(
       OutputStreamManager* flat_output_stream_managers);
 
   // Sets up output shards by connecting to the managers.
-  ::mediapipe::Status SetupOutputShards(OutputStreamShardSet* output_shards);
+  mediapipe::Status SetupOutputShards(OutputStreamShardSet* output_shards);
 
   int NumOutputStreams() const { return output_stream_managers_.NumEntries(); }
 
@@ -91,8 +92,8 @@ class OutputStreamHandler {
   // Calls OutputStreamManager::PrepareForRun(error_callback) per stream, and
   // resets data memebers.
   void PrepareForRun(
-      const std::function<void(::mediapipe::Status)>& error_callback)
-      LOCKS_EXCLUDED(timestamp_mutex_);
+      const std::function<void(mediapipe::Status)>& error_callback)
+      ABSL_LOCKS_EXCLUDED(timestamp_mutex_);
 
   // Marks the output streams as started and propagates any changes made in
   // Calculator::Open().
@@ -106,10 +107,11 @@ class OutputStreamHandler {
   // Propagates timestamp directly if there is no ongoing parallel invocation.
   // Otherwise, updates task_timestamp_bound_.
   void UpdateTaskTimestampBound(Timestamp timestamp)
-      LOCKS_EXCLUDED(timestamp_mutex_);
+      ABSL_LOCKS_EXCLUDED(timestamp_mutex_);
 
   // Invoked after a call to Calculator::Process() function.
-  void PostProcess(Timestamp input_timestamp) LOCKS_EXCLUDED(timestamp_mutex_);
+  void PostProcess(Timestamp input_timestamp)
+      ABSL_LOCKS_EXCLUDED(timestamp_mutex_);
 
   // Propagates the output shards and closes all managed output streams.
   void Close(OutputStreamShardSet* output_shards);
@@ -118,9 +120,11 @@ class OutputStreamHandler {
   // collection for debugging purpose.
   std::string FirstStreamName() const;
 
- protected:
-  typedef internal::Collection<OutputStreamManager*> OutputStreamManagerSet;
+  const OutputStreamManagerSet& OutputStreams() {
+    return output_stream_managers_;
+  }
 
+ protected:
   // Checks if the given input bound should be propagated or not. If any output
   // streams with OffsetEnabled() need to have the timestamp bounds updated,
   // then propagates the timestamp bounds of all output streams with
@@ -133,7 +137,8 @@ class OutputStreamHandler {
                               OutputStreamShardSet* output_shards);
 
   // The packets and timestamp propagation logic for parallel execution.
-  virtual void PropagationLoop() EXCLUSIVE_LOCKS_REQUIRED(timestamp_mutex_) = 0;
+  virtual void PropagationLoop()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(timestamp_mutex_) = 0;
 
   // Collection of all OutputStreamManager objects.
   OutputStreamManagerSet output_stream_managers_;
@@ -144,12 +149,13 @@ class OutputStreamHandler {
 
   absl::Mutex timestamp_mutex_;
   // A set of the completed input timestamps in ascending order.
-  std::set<Timestamp> completed_input_timestamps_ GUARDED_BY(timestamp_mutex_);
+  std::set<Timestamp> completed_input_timestamps_
+      ABSL_GUARDED_BY(timestamp_mutex_);
   // The current minimum timestamp for which a new packet could possibly arrive.
   // TODO: Rename the variable to be more descriptive.
-  Timestamp task_timestamp_bound_ GUARDED_BY(timestamp_mutex_);
+  Timestamp task_timestamp_bound_ ABSL_GUARDED_BY(timestamp_mutex_);
 
-  // PropagateionState indicates the current state of the propagation process.
+  // PropagationState indicates the current state of the propagation process.
   // There are eight possible transitions:
   // (a) From kIdle to kPropagatingPackets.
   // Any thread that makes this transition becomes the propagation thread, and
@@ -187,7 +193,7 @@ class OutputStreamHandler {
     kPropagatingBound = 2,    //
     kPropagationPending = 3
   };
-  PropagationState propagation_state_ GUARDED_BY(timestamp_mutex_) = kIdle;
+  PropagationState propagation_state_ ABSL_GUARDED_BY(timestamp_mutex_) = kIdle;
 };
 
 using OutputStreamHandlerRegistry = GlobalFactoryRegistry<
@@ -197,12 +203,12 @@ using OutputStreamHandlerRegistry = GlobalFactoryRegistry<
 }  // namespace mediapipe
 
 // Macro for registering the output stream handler.
-#define REGISTER_OUTPUT_STREAM_HANDLER(name)                                 \
-  REGISTER_FACTORY_FUNCTION_QUALIFIED(                                       \
-      ::mediapipe::OutputStreamHandlerRegistry, output_handler_registration, \
-      name,                                                                  \
-      absl::make_unique<name, std::shared_ptr<tool::TagMap>,                 \
-                        CalculatorContextManager*, const MediaPipeOptions&,  \
+#define REGISTER_OUTPUT_STREAM_HANDLER(name)                                \
+  REGISTER_FACTORY_FUNCTION_QUALIFIED(                                      \
+      mediapipe::OutputStreamHandlerRegistry, output_handler_registration,  \
+      name,                                                                 \
+      absl::make_unique<name, std::shared_ptr<tool::TagMap>,                \
+                        CalculatorContextManager*, const MediaPipeOptions&, \
                         bool>)
 
 #endif  // MEDIAPIPE_FRAMEWORK_OUTPUT_STREAM_HANDLER_H_

@@ -1,9 +1,6 @@
-mediapipe/provisioning_profile.mobileprovision
-bazel-bin
-bazel-genfiles
-bazel-mediapipe-ioss
-bazel-out
-bazel-testlogs
+bazel-*
 mediapipe/MediaPipe.xcodeproj
 mediapipe/MediaPipe.tulsiproj/*.tulsiconf-user
-.vscode/c_cpp_properties.json
+mediapipe/provisioning_profile.mobileprovision
+.configure.bazelrc
+.user.bazelrc

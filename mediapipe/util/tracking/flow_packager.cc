@@ -266,6 +266,9 @@ void FlowPackager::PackFlow(const RegionFlowFeatureList& feature_list,
   }
 
   CHECK_EQ(data->vector_data_size(), 2 * data->row_indices_size());
+
+  *data->mutable_actively_discarded_tracked_ids() =
+      feature_list.actively_discarded_tracked_ids();
 }
 
 void FlowPackager::EncodeTrackingData(const TrackingData& tracking_data,
@@ -577,18 +580,16 @@ void FlowPackager::EncodeTrackingData(const TrackingData& tracking_data,
                           : flow_compressed_8.size();
   int32 row_idx_size = row_idx.size();
 
-  absl::StrAppend(
-      data,
-      absl::StrCat(EncodeToString(frame_flags), EncodeToString(domain_width),
-                   EncodeToString(domain_height), EncodeToString(frame_aspect),
-                   background_model_string, EncodeToString(scale),
-                   EncodeToString(num_vectors),
-                   EncodeVectorToString(col_start_delta),
-                   EncodeToString(row_idx_size), EncodeVectorToString(row_idx),
-                   EncodeToString(vector_size),
-                   (options_.high_fidelity_16bit_encode()
-                        ? EncodeVectorToString(flow_compressed_16)
-                        : EncodeVectorToString(flow_compressed_8))));
+  absl::StrAppend(data, EncodeToString(frame_flags),
+                  EncodeToString(domain_width), EncodeToString(domain_height),
+                  EncodeToString(frame_aspect), background_model_string,
+                  EncodeToString(scale), EncodeToString(num_vectors),
+                  EncodeVectorToString(col_start_delta),
+                  EncodeToString(row_idx_size), EncodeVectorToString(row_idx),
+                  EncodeToString(vector_size),
+                  (options_.high_fidelity_16bit_encode()
+                       ? EncodeVectorToString(flow_compressed_16)
+                       : EncodeVectorToString(flow_compressed_8)));
   VLOG(1) << "Binary data size: " << data->size() << " for " << num_vectors
           << " (" << vector_size << ")";
 }
@@ -862,9 +863,8 @@ void FlowPackager::FinalizeTrackingContainerFormat(
   std::string* binary_metadata = meta->mutable_data();
   absl::StrAppend(binary_metadata, EncodeToString(meta_data.num_frames()));
   for (auto& track_offset : *meta_data.mutable_track_offsets()) {
-    absl::StrAppend(binary_metadata,
-                    absl::StrCat(EncodeToString(track_offset.msec()),
-                                 EncodeToString(track_offset.stream_offset())));
+    absl::StrAppend(binary_metadata, EncodeToString(track_offset.msec()),
+                    EncodeToString(track_offset.stream_offset()));
   }
 
   meta->set_size(binary_metadata->size());

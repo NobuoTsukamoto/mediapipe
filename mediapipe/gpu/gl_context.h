@@ -91,7 +91,7 @@ class GlSyncPoint {
   // Returns whether the sync point has been reached. Does not block.
   virtual bool IsReady() = 0;
 
-  const GlContext& GetContext() { return *gl_context_; }
+  const std::shared_ptr<GlContext>& GetContext() { return gl_context_; }
 
  protected:
   std::shared_ptr<GlContext> gl_context_;
@@ -237,6 +237,10 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   static bool ParseGlVersion(absl::string_view version_string, GLint* major,
                              GLint* minor);
 
+  // Simple query for GL extension support; only valid after GlContext has
+  // finished its initialization successfully.
+  bool HasGlExtension(absl::string_view extension) const;
+
   int64_t gl_finish_count() { return gl_finish_count_; }
 
   // Used by GlFinishSyncPoint. The count_to_pass cannot exceed the current
@@ -344,8 +348,28 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   void DestroyContext();
 
   bool HasContext() const;
+
+  // This function clears out any tripped gl Errors and just logs them. This
+  // is used by code that needs to check glGetError() to know if it succeeded,
+  // but can't rely on the existing state to be 'clean'.
+  void ForceClearExistingGlErrors();
+
+  // Returns true if there were any GL errors. Note that this may be a no-op
+  // for performance reasons in some contexts (specifically Emscripten opt).
   bool CheckForGlErrors();
+
+  // Same as `CheckForGLErrors()` but with the option of forcing the check
+  // even if we would otherwise skip for performance reasons.
+  bool CheckForGlErrors(bool force);
+
   void LogUncheckedGlErrors(bool had_gl_errors);
+  ::mediapipe::Status GetGlExtensions();
+  ::mediapipe::Status GetGlExtensionsCompat();
+
+  // Make the context current, run gl_func, and restore the previous context.
+  // Internal helper only; callers should use Run or RunWithoutWaiting instead,
+  // which delegates to the dedicated thread if required.
+  ::mediapipe::Status SwitchContextAndRun(GlStatusFunction gl_func);
 
   // The following ContextBinding functions have platform-specific
   // implementations.
@@ -366,10 +390,17 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   GLint gl_major_version_ = 0;
   GLint gl_minor_version_ = 0;
 
+  // glGetString and glGetStringi both return pointers to static strings,
+  // so we should be fine storing the extension pieces as string_view's.
+  std::set<absl::string_view> gl_extensions_;
+
   // Number of glFinish calls completed on the GL thread.
   // Changes should be guarded by mutex_. However, we use simple atomic
   // loads for efficiency on the fast path.
   std::atomic<int64_t> gl_finish_count_ = ATOMIC_VAR_INIT(0);
+  std::atomic<int64_t> gl_finish_count_target_ = ATOMIC_VAR_INIT(0);
+
+  GlContext* context_waiting_on_ ABSL_GUARDED_BY(mutex_) = nullptr;
 
   // This mutex is held by a thread while this GL context is current on that
   // thread. Since it may be held for extended periods of time, it should not
@@ -379,7 +410,7 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   // This mutex is used to guard a few different members and condition
   // variables. It should only be held for a short time.
   absl::Mutex mutex_;
-  absl::CondVar wait_for_gl_finish_cv_ GUARDED_BY(mutex_);
+  absl::CondVar wait_for_gl_finish_cv_ ABSL_GUARDED_BY(mutex_);
 
   std::unique_ptr<mediapipe::GlProfilingHelper> profiling_helper_ = nullptr;
 };

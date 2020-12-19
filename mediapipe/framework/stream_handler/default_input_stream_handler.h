@@ -35,6 +35,13 @@ class DefaultInputStreamHandler : public InputStreamHandler {
                             bool calculator_run_in_parallel);
 
  protected:
+  // Reinitializes this InputStreamHandler before each CalculatorGraph run.
+  void PrepareForRun(
+      std::function<void()> headers_ready_callback,
+      std::function<void()> notification_callback,
+      std::function<void(CalculatorContext*)> schedule_callback,
+      std::function<void(mediapipe::Status)> error_callback) override;
+
   // In DefaultInputStreamHandler, a node is "ready" if:
   // - all streams are done (need to call Close() in this case), or
   // - the minimum bound (over all empty streams) is greater than the smallest
@@ -45,6 +52,9 @@ class DefaultInputStreamHandler : public InputStreamHandler {
   // Only invoked when associated GetNodeReadiness() returned kReadyForProcess.
   void FillInputSet(Timestamp input_timestamp,
                     InputStreamShardSet* input_set) override;
+
+  // The packet-set builder.
+  SyncSet sync_set_;
 };
 
 }  // namespace mediapipe

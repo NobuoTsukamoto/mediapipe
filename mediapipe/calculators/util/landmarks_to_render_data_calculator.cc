@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include "mediapipe/calculators/util/landmarks_to_render_data_calculator.h"
 
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
@@ -29,11 +30,9 @@ namespace {
 
 constexpr char kLandmarksTag[] = "LANDMARKS";
 constexpr char kNormLandmarksTag[] = "NORM_LANDMARKS";
+constexpr char kRenderScaleTag[] = "RENDER_SCALE";
 constexpr char kRenderDataTag[] = "RENDER_DATA";
 constexpr char kLandmarkLabel[] = "KEYPOINT";
-constexpr int kMaxLandmarkThickness = 18;
-
-using ::mediapipe::RenderAnnotation_Point;
 
 inline void SetColor(RenderAnnotation* annotation, const Color& color) {
   annotation->mutable_color()->set_r(color.r());
@@ -59,82 +58,126 @@ inline void GetMinMaxZ(const LandmarkListType& landmarks, float* z_min,
 }
 
 void SetColorSizeValueFromZ(float z, float z_min, float z_max,
-                            RenderAnnotation* render_annotation) {
+                            RenderAnnotation* render_annotation,
+                            float min_depth_circle_thickness,
+                            float max_depth_circle_thickness) {
   const int color_value = 255 - static_cast<int>(Remap(z, z_min, z_max, 255));
   ::mediapipe::Color color;
   color.set_r(color_value);
   color.set_g(color_value);
   color.set_b(color_value);
   SetColor(render_annotation, color);
-  const int thickness = static_cast<int>((1.f - Remap(z, z_min, z_max, 1)) *
-                                         kMaxLandmarkThickness);
+  const float scale = max_depth_circle_thickness - min_depth_circle_thickness;
+  const int thickness = static_cast<int>(
+      min_depth_circle_thickness + (1.f - Remap(z, z_min, z_max, 1)) * scale);
   render_annotation->set_thickness(thickness);
+}
+
+template <class LandmarkType>
+void AddConnectionToRenderData(const LandmarkType& start,
+                               const LandmarkType& end, int gray_val1,
+                               int gray_val2, float thickness, bool normalized,
+                               RenderData* render_data) {
+  auto* connection_annotation = render_data->add_render_annotations();
+  RenderAnnotation::GradientLine* line =
+      connection_annotation->mutable_gradient_line();
+  line->set_x_start(start.x());
+  line->set_y_start(start.y());
+  line->set_x_end(end.x());
+  line->set_y_end(end.y());
+  line->set_normalized(normalized);
+  line->mutable_color1()->set_r(gray_val1);
+  line->mutable_color1()->set_g(gray_val1);
+  line->mutable_color1()->set_b(gray_val1);
+  line->mutable_color2()->set_r(gray_val2);
+  line->mutable_color2()->set_g(gray_val2);
+  line->mutable_color2()->set_b(gray_val2);
+  connection_annotation->set_thickness(thickness);
+}
+
+template <class LandmarkListType, class LandmarkType>
+void AddConnectionsWithDepth(const LandmarkListType& landmarks,
+                             const std::vector<int>& landmark_connections,
+                             bool utilize_visibility,
+                             float visibility_threshold, bool utilize_presence,
+                             float presence_threshold, float thickness,
+                             bool normalized, float min_z, float max_z,
+                             RenderData* render_data) {
+  for (int i = 0; i < landmark_connections.size(); i += 2) {
+    const auto& ld0 = landmarks.landmark(landmark_connections[i]);
+    const auto& ld1 = landmarks.landmark(landmark_connections[i + 1]);
+    if (utilize_visibility &&
+        ((ld0.has_visibility() && ld0.visibility() < visibility_threshold) ||
+         (ld1.has_visibility() && ld1.visibility() < visibility_threshold))) {
+      continue;
+    }
+    if (utilize_presence &&
+        ((ld0.has_presence() && ld0.presence() < presence_threshold) ||
+         (ld1.has_presence() && ld1.presence() < presence_threshold))) {
+      continue;
+    }
+    const int gray_val1 =
+        255 - static_cast<int>(Remap(ld0.z(), min_z, max_z, 255));
+    const int gray_val2 =
+        255 - static_cast<int>(Remap(ld1.z(), min_z, max_z, 255));
+    AddConnectionToRenderData<LandmarkType>(ld0, ld1, gray_val1, gray_val2,
+                                            thickness, normalized, render_data);
+  }
+}
+
+template <class LandmarkType>
+void AddConnectionToRenderData(const LandmarkType& start,
+                               const LandmarkType& end,
+                               const Color& connection_color, float thickness,
+                               bool normalized, RenderData* render_data) {
+  auto* connection_annotation = render_data->add_render_annotations();
+  RenderAnnotation::Line* line = connection_annotation->mutable_line();
+  line->set_x_start(start.x());
+  line->set_y_start(start.y());
+  line->set_x_end(end.x());
+  line->set_y_end(end.y());
+  line->set_normalized(normalized);
+  SetColor(connection_annotation, connection_color);
+  connection_annotation->set_thickness(thickness);
+}
+
+template <class LandmarkListType, class LandmarkType>
+void AddConnections(const LandmarkListType& landmarks,
+                    const std::vector<int>& landmark_connections,
+                    bool utilize_visibility, float visibility_threshold,
+                    bool utilize_presence, float presence_threshold,
+                    const Color& connection_color, float thickness,
+                    bool normalized, RenderData* render_data) {
+  for (int i = 0; i < landmark_connections.size(); i += 2) {
+    const auto& ld0 = landmarks.landmark(landmark_connections[i]);
+    const auto& ld1 = landmarks.landmark(landmark_connections[i + 1]);
+    if (utilize_visibility &&
+        ((ld0.has_visibility() && ld0.visibility() < visibility_threshold) ||
+         (ld1.has_visibility() && ld1.visibility() < visibility_threshold))) {
+      continue;
+    }
+    if (utilize_presence &&
+        ((ld0.has_presence() && ld0.presence() < presence_threshold) ||
+         (ld1.has_presence() && ld1.presence() < presence_threshold))) {
+      continue;
+    }
+    AddConnectionToRenderData<LandmarkType>(ld0, ld1, connection_color,
+                                            thickness, normalized, render_data);
+  }
+}
+
+RenderAnnotation* AddPointRenderData(const Color& landmark_color,
+                                     float thickness, RenderData* render_data) {
+  auto* landmark_data_annotation = render_data->add_render_annotations();
+  landmark_data_annotation->set_scene_tag(kLandmarkLabel);
+  SetColor(landmark_data_annotation, landmark_color);
+  landmark_data_annotation->set_thickness(thickness);
+  return landmark_data_annotation;
 }
 
 }  // namespace
 
-// A calculator that converts Landmark proto to RenderData proto for
-// visualization. The input should be LandmarkList proto. It is also possible
-// to specify the connections between landmarks.
-//
-// Example config:
-// node {
-//   calculator: "LandmarksToRenderDataCalculator"
-//   input_stream: "NORM_LANDMARKS:landmarks"
-//   output_stream: "RENDER_DATA:render_data"
-//   options {
-//     [LandmarksToRenderDataCalculatorOptions.ext] {
-//       landmark_connections: [0, 1, 1, 2]
-//       landmark_color { r: 0 g: 255 b: 0 }
-//       connection_color { r: 0 g: 255 b: 0 }
-//       thickness: 4.0
-//     }
-//   }
-// }
-class LandmarksToRenderDataCalculator : public CalculatorBase {
- public:
-  LandmarksToRenderDataCalculator() {}
-  ~LandmarksToRenderDataCalculator() override {}
-  LandmarksToRenderDataCalculator(const LandmarksToRenderDataCalculator&) =
-      delete;
-  LandmarksToRenderDataCalculator& operator=(
-      const LandmarksToRenderDataCalculator&) = delete;
-
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
-
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-
- private:
-  static void AddConnectionToRenderData(
-      float start_x, float start_y, float end_x, float end_y,
-      const LandmarksToRenderDataCalculatorOptions& options, bool normalized,
-      RenderData* render_data);
-  static void SetRenderAnnotationColorThickness(
-      const LandmarksToRenderDataCalculatorOptions& options,
-      RenderAnnotation* render_annotation);
-  static RenderAnnotation* AddPointRenderData(
-      const LandmarksToRenderDataCalculatorOptions& options,
-      RenderData* render_data);
-  static void AddConnectionToRenderData(
-      float start_x, float start_y, float end_x, float end_y,
-      const LandmarksToRenderDataCalculatorOptions& options, bool normalized,
-      int gray_val1, int gray_val2, RenderData* render_data);
-
-  template <class LandmarkListType>
-  void AddConnections(const LandmarkListType& landmarks, bool normalized,
-                      RenderData* render_data);
-  template <class LandmarkListType>
-  void AddConnectionsWithDepth(const LandmarkListType& landmarks,
-                               bool normalized, float min_z, float max_z,
-                               RenderData* render_data);
-
-  LandmarksToRenderDataCalculatorOptions options_;
-};
-REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
-
-::mediapipe::Status LandmarksToRenderDataCalculator::GetContract(
+mediapipe::Status LandmarksToRenderDataCalculator::GetContract(
     CalculatorContract* cc) {
   RET_CHECK(cc->Inputs().HasTag(kLandmarksTag) ||
             cc->Inputs().HasTag(kNormLandmarksTag))
@@ -150,174 +193,156 @@ REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
   if (cc->Inputs().HasTag(kNormLandmarksTag)) {
     cc->Inputs().Tag(kNormLandmarksTag).Set<NormalizedLandmarkList>();
   }
+  if (cc->Inputs().HasTag(kRenderScaleTag)) {
+    cc->Inputs().Tag(kRenderScaleTag).Set<float>();
+  }
   cc->Outputs().Tag(kRenderDataTag).Set<RenderData>();
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status LandmarksToRenderDataCalculator::Open(
-    CalculatorContext* cc) {
+mediapipe::Status LandmarksToRenderDataCalculator::Open(CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
   options_ = cc->Options<LandmarksToRenderDataCalculatorOptions>();
 
-  return ::mediapipe::OkStatus();
+  // Parse landmarks connections to a vector.
+  RET_CHECK_EQ(options_.landmark_connections_size() % 2, 0)
+      << "Number of entries in landmark connections must be a multiple of 2";
+
+  for (int i = 0; i < options_.landmark_connections_size(); ++i) {
+    landmark_connections_.push_back(options_.landmark_connections(i));
+  }
+
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status LandmarksToRenderDataCalculator::Process(
+mediapipe::Status LandmarksToRenderDataCalculator::Process(
     CalculatorContext* cc) {
+  // Check that landmarks are not empty and skip rendering if so.
+  // Don't emit an empty packet for this timestamp.
+  if (cc->Inputs().HasTag(kLandmarksTag) &&
+      cc->Inputs().Tag(kLandmarksTag).IsEmpty()) {
+    return mediapipe::OkStatus();
+  }
+  if (cc->Inputs().HasTag(kNormLandmarksTag) &&
+      cc->Inputs().Tag(kNormLandmarksTag).IsEmpty()) {
+    return mediapipe::OkStatus();
+  }
+
   auto render_data = absl::make_unique<RenderData>();
   bool visualize_depth = options_.visualize_landmark_depth();
   float z_min = 0.f;
   float z_max = 0.f;
 
+  // Apply scale to `thickness` of rendered landmarks and connections to make
+  // them bigger when object (e.g. pose, hand or face) is closer/bigger and
+  // snaller when object is further/smaller.
+  float thickness = options_.thickness();
+  if (cc->Inputs().HasTag(kRenderScaleTag)) {
+    const float render_scale = cc->Inputs().Tag(kRenderScaleTag).Get<float>();
+    thickness *= render_scale;
+  }
+
   if (cc->Inputs().HasTag(kLandmarksTag)) {
     const LandmarkList& landmarks =
         cc->Inputs().Tag(kLandmarksTag).Get<LandmarkList>();
-    RET_CHECK_EQ(options_.landmark_connections_size() % 2, 0)
-        << "Number of entries in landmark connections must be a multiple of 2";
     if (visualize_depth) {
       GetMinMaxZ<LandmarkList, Landmark>(landmarks, &z_min, &z_max);
     }
     // Only change rendering if there are actually z values other than 0.
     visualize_depth &= ((z_max - z_min) > 1e-3);
+    if (visualize_depth) {
+      AddConnectionsWithDepth<LandmarkList, Landmark>(
+          landmarks, landmark_connections_, options_.utilize_visibility(),
+          options_.visibility_threshold(), options_.utilize_presence(),
+          options_.presence_threshold(), thickness, /*normalized=*/false, z_min,
+          z_max, render_data.get());
+    } else {
+      AddConnections<LandmarkList, Landmark>(
+          landmarks, landmark_connections_, options_.utilize_visibility(),
+          options_.visibility_threshold(), options_.utilize_presence(),
+          options_.presence_threshold(), options_.connection_color(), thickness,
+          /*normalized=*/false, render_data.get());
+    }
     for (int i = 0; i < landmarks.landmark_size(); ++i) {
       const Landmark& landmark = landmarks.landmark(i);
-      auto* landmark_data_render =
-          AddPointRenderData(options_, render_data.get());
+
+      if (options_.utilize_visibility() && landmark.has_visibility() &&
+          landmark.visibility() < options_.visibility_threshold()) {
+        continue;
+      }
+
+      if (options_.utilize_presence() && landmark.has_presence() &&
+          landmark.presence() < options_.presence_threshold()) {
+        continue;
+      }
+
+      auto* landmark_data_render = AddPointRenderData(
+          options_.landmark_color(), thickness, render_data.get());
       if (visualize_depth) {
-        SetColorSizeValueFromZ(landmark.z(), z_min, z_max,
-                               landmark_data_render);
+        SetColorSizeValueFromZ(landmark.z(), z_min, z_max, landmark_data_render,
+                               options_.min_depth_circle_thickness(),
+                               options_.max_depth_circle_thickness());
       }
       auto* landmark_data = landmark_data_render->mutable_point();
       landmark_data->set_normalized(false);
       landmark_data->set_x(landmark.x());
       landmark_data->set_y(landmark.y());
     }
-    if (visualize_depth) {
-      AddConnectionsWithDepth<LandmarkList>(landmarks, /*normalized=*/false,
-                                            z_min, z_max, render_data.get());
-    } else {
-      AddConnections<LandmarkList>(landmarks, /*normalized=*/false,
-                                   render_data.get());
-    }
   }
 
   if (cc->Inputs().HasTag(kNormLandmarksTag)) {
     const NormalizedLandmarkList& landmarks =
         cc->Inputs().Tag(kNormLandmarksTag).Get<NormalizedLandmarkList>();
-    RET_CHECK_EQ(options_.landmark_connections_size() % 2, 0)
-        << "Number of entries in landmark connections must be a multiple of 2";
     if (visualize_depth) {
       GetMinMaxZ<NormalizedLandmarkList, NormalizedLandmark>(landmarks, &z_min,
                                                              &z_max);
     }
     // Only change rendering if there are actually z values other than 0.
     visualize_depth &= ((z_max - z_min) > 1e-3);
+    if (visualize_depth) {
+      AddConnectionsWithDepth<NormalizedLandmarkList, NormalizedLandmark>(
+          landmarks, landmark_connections_, options_.utilize_visibility(),
+          options_.visibility_threshold(), options_.utilize_presence(),
+          options_.presence_threshold(), thickness, /*normalized=*/true, z_min,
+          z_max, render_data.get());
+    } else {
+      AddConnections<NormalizedLandmarkList, NormalizedLandmark>(
+          landmarks, landmark_connections_, options_.utilize_visibility(),
+          options_.visibility_threshold(), options_.utilize_presence(),
+          options_.presence_threshold(), options_.connection_color(), thickness,
+          /*normalized=*/true, render_data.get());
+    }
     for (int i = 0; i < landmarks.landmark_size(); ++i) {
       const NormalizedLandmark& landmark = landmarks.landmark(i);
-      auto* landmark_data_render =
-          AddPointRenderData(options_, render_data.get());
+
+      if (options_.utilize_visibility() && landmark.has_visibility() &&
+          landmark.visibility() < options_.visibility_threshold()) {
+        continue;
+      }
+      if (options_.utilize_presence() && landmark.has_presence() &&
+          landmark.presence() < options_.presence_threshold()) {
+        continue;
+      }
+
+      auto* landmark_data_render = AddPointRenderData(
+          options_.landmark_color(), thickness, render_data.get());
       if (visualize_depth) {
-        SetColorSizeValueFromZ(landmark.z(), z_min, z_max,
-                               landmark_data_render);
+        SetColorSizeValueFromZ(landmark.z(), z_min, z_max, landmark_data_render,
+                               options_.min_depth_circle_thickness(),
+                               options_.max_depth_circle_thickness());
       }
       auto* landmark_data = landmark_data_render->mutable_point();
       landmark_data->set_normalized(true);
       landmark_data->set_x(landmark.x());
       landmark_data->set_y(landmark.y());
     }
-    if (visualize_depth) {
-      AddConnectionsWithDepth<NormalizedLandmarkList>(
-          landmarks, /*normalized=*/true, z_min, z_max, render_data.get());
-    } else {
-      AddConnections<NormalizedLandmarkList>(landmarks, /*normalized=*/true,
-                                             render_data.get());
-    }
   }
 
   cc->Outputs()
       .Tag(kRenderDataTag)
       .Add(render_data.release(), cc->InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-template <class LandmarkListType>
-void LandmarksToRenderDataCalculator::AddConnectionsWithDepth(
-    const LandmarkListType& landmarks, bool normalized, float min_z,
-    float max_z, RenderData* render_data) {
-  for (int i = 0; i < options_.landmark_connections_size(); i += 2) {
-    const auto& ld0 = landmarks.landmark(options_.landmark_connections(i));
-    const auto& ld1 = landmarks.landmark(options_.landmark_connections(i + 1));
-    const int gray_val1 =
-        255 - static_cast<int>(Remap(ld0.z(), min_z, max_z, 255));
-    const int gray_val2 =
-        255 - static_cast<int>(Remap(ld1.z(), min_z, max_z, 255));
-    AddConnectionToRenderData(ld0.x(), ld0.y(), ld1.x(), ld1.y(), options_,
-                              normalized, gray_val1, gray_val2, render_data);
-  }
-}
-
-void LandmarksToRenderDataCalculator::AddConnectionToRenderData(
-    float start_x, float start_y, float end_x, float end_y,
-    const LandmarksToRenderDataCalculatorOptions& options, bool normalized,
-    int gray_val1, int gray_val2, RenderData* render_data) {
-  auto* connection_annotation = render_data->add_render_annotations();
-  RenderAnnotation::GradientLine* line =
-      connection_annotation->mutable_gradient_line();
-  line->set_x_start(start_x);
-  line->set_y_start(start_y);
-  line->set_x_end(end_x);
-  line->set_y_end(end_y);
-  line->set_normalized(normalized);
-  line->mutable_color1()->set_r(gray_val1);
-  line->mutable_color1()->set_g(gray_val1);
-  line->mutable_color1()->set_b(gray_val1);
-  line->mutable_color2()->set_r(gray_val2);
-  line->mutable_color2()->set_g(gray_val2);
-  line->mutable_color2()->set_b(gray_val2);
-  connection_annotation->set_thickness(options.thickness());
-}
-
-template <class LandmarkListType>
-void LandmarksToRenderDataCalculator::AddConnections(
-    const LandmarkListType& landmarks, bool normalized,
-    RenderData* render_data) {
-  for (int i = 0; i < options_.landmark_connections_size(); i += 2) {
-    const auto& ld0 = landmarks.landmark(options_.landmark_connections(i));
-    const auto& ld1 = landmarks.landmark(options_.landmark_connections(i + 1));
-    AddConnectionToRenderData(ld0.x(), ld0.y(), ld1.x(), ld1.y(), options_,
-                              normalized, render_data);
-  }
-}
-
-void LandmarksToRenderDataCalculator::AddConnectionToRenderData(
-    float start_x, float start_y, float end_x, float end_y,
-    const LandmarksToRenderDataCalculatorOptions& options, bool normalized,
-    RenderData* render_data) {
-  auto* connection_annotation = render_data->add_render_annotations();
-  RenderAnnotation::Line* line = connection_annotation->mutable_line();
-  line->set_x_start(start_x);
-  line->set_y_start(start_y);
-  line->set_x_end(end_x);
-  line->set_y_end(end_y);
-  line->set_normalized(normalized);
-  SetColor(connection_annotation, options.connection_color());
-  connection_annotation->set_thickness(options.thickness());
-}
-
-RenderAnnotation* LandmarksToRenderDataCalculator::AddPointRenderData(
-    const LandmarksToRenderDataCalculatorOptions& options,
-    RenderData* render_data) {
-  auto* landmark_data_annotation = render_data->add_render_annotations();
-  landmark_data_annotation->set_scene_tag(kLandmarkLabel);
-  SetRenderAnnotationColorThickness(options, landmark_data_annotation);
-  return landmark_data_annotation;
-}
-
-void LandmarksToRenderDataCalculator::SetRenderAnnotationColorThickness(
-    const LandmarksToRenderDataCalculatorOptions& options,
-    RenderAnnotation* render_annotation) {
-  SetColor(render_annotation, options.landmark_color());
-  render_annotation->set_thickness(options.thickness());
-}
-
+REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
 }  // namespace mediapipe

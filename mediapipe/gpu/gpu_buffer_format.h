@@ -17,6 +17,9 @@
 
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>
+#if !TARGET_OS_OSX
+#define MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER 1
+#endif  // TARGET_OS_OSX
 #endif  // defined(__APPLE__)
 
 #include "mediapipe/framework/formats/image_format.pb.h"
@@ -36,6 +39,7 @@ enum class GpuBufferFormat : uint32_t {
   kGrayHalf16 = MEDIAPIPE_FOURCC('L', '0', '0', 'h'),
   kOneComponent8 = MEDIAPIPE_FOURCC('L', '0', '0', '8'),
   kTwoComponentHalf16 = MEDIAPIPE_FOURCC('2', 'C', '0', 'h'),
+  kTwoComponentFloat32 = MEDIAPIPE_FOURCC('2', 'C', '0', 'f'),
   kBiPlanar420YpCbCr8VideoRange = MEDIAPIPE_FOURCC('4', '2', '0', 'v'),
   kBiPlanar420YpCbCr8FullRange = MEDIAPIPE_FOURCC('4', '2', '0', 'f'),
   kRGB24 = 0x00000018,  // Note: prefer BGRA32 whenever possible.
@@ -82,6 +86,8 @@ inline OSType CVPixelFormatForGpuBufferFormat(GpuBufferFormat format) {
       return kCVPixelFormatType_OneComponent8;
     case GpuBufferFormat::kTwoComponentHalf16:
       return kCVPixelFormatType_TwoComponent16Half;
+    case GpuBufferFormat::kTwoComponentFloat32:
+      return kCVPixelFormatType_TwoComponent32Float;
     case GpuBufferFormat::kBiPlanar420YpCbCr8VideoRange:
       return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
     case GpuBufferFormat::kBiPlanar420YpCbCr8FullRange:
@@ -112,6 +118,8 @@ inline GpuBufferFormat GpuBufferFormatForCVPixelFormat(OSType format) {
       return GpuBufferFormat::kOneComponent8;
     case kCVPixelFormatType_TwoComponent16Half:
       return GpuBufferFormat::kTwoComponentHalf16;
+    case kCVPixelFormatType_TwoComponent32Float:
+      return GpuBufferFormat::kTwoComponentFloat32;
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
       return GpuBufferFormat::kBiPlanar420YpCbCr8VideoRange;
     case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:

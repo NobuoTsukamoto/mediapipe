@@ -17,7 +17,7 @@ load(
     "mediapipe_binary_graph",
 )
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
 
@@ -26,8 +26,18 @@ cc_library(
     deps = [
         "//mediapipe/calculators/core:packet_resampler_calculator",
         "//mediapipe/graphs/tracking/subgraphs:object_detection_gpu",
-        "//mediapipe/graphs/tracking/subgraphs:object_tracking",
+        "//mediapipe/graphs/tracking/subgraphs:object_tracking_gpu",
         "//mediapipe/graphs/tracking/subgraphs:renderer_gpu",
+    ],
+)
+
+cc_library(
+    name = "desktop_calculators",
+    deps = [
+        "//mediapipe/calculators/core:packet_resampler_calculator",
+        "//mediapipe/graphs/tracking/subgraphs:object_detection_cpu",
+        "//mediapipe/graphs/tracking/subgraphs:object_tracking_cpu",
+        "//mediapipe/graphs/tracking/subgraphs:renderer_cpu",
     ],
 )
 

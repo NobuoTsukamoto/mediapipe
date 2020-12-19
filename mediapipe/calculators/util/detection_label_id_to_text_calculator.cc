@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mediapipe//framework/packet.h"
+#include "absl/container/node_hash_map.h"
 #include "mediapipe/calculators/util/detection_label_id_to_text_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/detection.pb.h"
+#include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/resource_util.h"
 
@@ -46,46 +47,53 @@ namespace mediapipe {
 // }
 class DetectionLabelIdToTextCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static mediapipe::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
 
  private:
-  std::unordered_map<int, std::string> label_map_;
+  absl::node_hash_map<int, std::string> label_map_;
 };
 REGISTER_CALCULATOR(DetectionLabelIdToTextCalculator);
 
-::mediapipe::Status DetectionLabelIdToTextCalculator::GetContract(
+mediapipe::Status DetectionLabelIdToTextCalculator::GetContract(
     CalculatorContract* cc) {
   cc->Inputs().Index(0).Set<std::vector<Detection>>();
   cc->Outputs().Index(0).Set<std::vector<Detection>>();
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status DetectionLabelIdToTextCalculator::Open(
+mediapipe::Status DetectionLabelIdToTextCalculator::Open(
     CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
   const auto& options =
       cc->Options<::mediapipe::DetectionLabelIdToTextCalculatorOptions>();
 
-  std::string string_path;
-  ASSIGN_OR_RETURN(string_path, PathToResourceAsFile(options.label_map_path()));
-  std::string label_map_string;
-  MP_RETURN_IF_ERROR(file::GetContents(string_path, &label_map_string));
+  if (options.has_label_map_path()) {
+    std::string string_path;
+    ASSIGN_OR_RETURN(string_path,
+                     PathToResourceAsFile(options.label_map_path()));
+    std::string label_map_string;
+    MP_RETURN_IF_ERROR(file::GetContents(string_path, &label_map_string));
 
-  std::istringstream stream(label_map_string);
-  std::string line;
-  int i = 0;
-  while (std::getline(stream, line)) {
-    label_map_[i++] = line;
+    std::istringstream stream(label_map_string);
+    std::string line;
+    int i = 0;
+    while (std::getline(stream, line)) {
+      label_map_[i++] = line;
+    }
+  } else {
+    for (int i = 0; i < options.label_size(); ++i) {
+      label_map_[i] = options.label(i);
+    }
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status DetectionLabelIdToTextCalculator::Process(
+mediapipe::Status DetectionLabelIdToTextCalculator::Process(
     CalculatorContext* cc) {
   std::vector<Detection> output_detections;
   for (const auto& input_detection :
@@ -107,7 +115,7 @@ REGISTER_CALCULATOR(DetectionLabelIdToTextCalculator);
   cc->Outputs().Index(0).AddPacket(
       MakePacket<std::vector<Detection>>(output_detections)
           .At(cc->InputTimestamp()));
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

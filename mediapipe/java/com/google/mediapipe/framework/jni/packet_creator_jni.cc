@@ -17,12 +17,14 @@
 #include <cstring>
 #include <memory>
 
+#include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/camera_intrinsics.h"
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/time_series_header.pb.h"
 #include "mediapipe/framework/formats/video_stream_header.h"
+#include "mediapipe/framework/port/core_proto_inc.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/colorspace.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph.h"
@@ -32,6 +34,8 @@
 #endif  // !defined(MEDIAPIPE_DISABLE_GPU)
 
 namespace {
+using mediapipe::android::SerializedMessageIds;
+using mediapipe::android::ThrowIfError;
 
 template <class T>
 int64_t CreatePacketScalar(jlong context, const T& value) {
@@ -49,7 +53,6 @@ int64_t CreatePacketWithContext(jlong context,
       reinterpret_cast<mediapipe::android::Graph*>(context);
   return mediapipe_graph->WrapPacketIntoContext(packet);
 }
-
 }  // namespace
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateReferencePacket)(
@@ -67,9 +70,9 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateRgbImage)(
     JNIEnv* env, jobject thiz, jlong context, jobject byte_buffer, jint width,
     jint height) {
   const void* data = env->GetDirectBufferAddress(byte_buffer);
-  auto image_frame = absl::make_unique<::mediapipe::ImageFrame>(
+  auto image_frame = absl::make_unique<mediapipe::ImageFrame>(
       mediapipe::ImageFormat::SRGB, width, height,
-      ::mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+      mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
   int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
   if (buffer_size != image_frame->PixelDataSize()) {
     LOG(ERROR) << "The input image buffer should have 4 bytes alignment.";
@@ -89,9 +92,9 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateRgbImageFromRgba)(
     jint height) {
   const uint8_t* rgba_data =
       static_cast<uint8_t*>(env->GetDirectBufferAddress(byte_buffer));
-  auto image_frame = absl::make_unique<::mediapipe::ImageFrame>(
+  auto image_frame = absl::make_unique<mediapipe::ImageFrame>(
       mediapipe::ImageFormat::SRGB, width, height,
-      ::mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+      mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
   int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
   if (buffer_size != width * height * 4) {
     LOG(ERROR) << "Please check the input buffer size.";
@@ -110,9 +113,9 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateRgbImageFromRgba)(
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateGrayscaleImage)(
     JNIEnv* env, jobject thiz, jlong context, jobject byte_buffer, jint width,
     jint height) {
-  auto image_frame = absl::make_unique<::mediapipe::ImageFrame>(
+  auto image_frame = absl::make_unique<mediapipe::ImageFrame>(
       mediapipe::ImageFormat::GRAY8, width, height,
-      ::mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+      mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
   int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
   if (buffer_size != width * height) {
     LOG(ERROR) << "Please check the input buffer size.";
@@ -136,13 +139,34 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateGrayscaleImage)(
   return CreatePacketWithContext(context, packet);
 }
 
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateFloatImageFrame)(
+    JNIEnv* env, jobject thiz, jlong context, jobject byte_buffer, jint width,
+    jint height) {
+  const void* data = env->GetDirectBufferAddress(byte_buffer);
+  auto image_frame = absl::make_unique<mediapipe::ImageFrame>(
+      mediapipe::ImageFormat::VEC32F1, width, height,
+      mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+  int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
+  if (buffer_size != image_frame->PixelDataSize()) {
+    LOG(ERROR) << "Please check the input buffer size.";
+    LOG(ERROR) << "Buffer size: " << buffer_size
+               << ", Buffer size needed: " << image_frame->PixelDataSize()
+               << ", Image width: " << width;
+    return 0L;
+  }
+  std::memcpy(image_frame->MutablePixelData(), data,
+              image_frame->PixelDataSize());
+  mediapipe::Packet packet = mediapipe::Adopt(image_frame.release());
+  return CreatePacketWithContext(context, packet);
+}
+
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateRgbaImageFrame)(
     JNIEnv* env, jobject thiz, jlong context, jobject byte_buffer, jint width,
     jint height) {
   const void* rgba_data = env->GetDirectBufferAddress(byte_buffer);
-  auto image_frame = absl::make_unique<::mediapipe::ImageFrame>(
+  auto image_frame = absl::make_unique<mediapipe::ImageFrame>(
       mediapipe::ImageFormat::SRGBA, width, height,
-      ::mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+      mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
   int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
   if (buffer_size != image_frame->PixelDataSize()) {
     LOG(ERROR) << "Please check the input buffer size.";
@@ -157,25 +181,14 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateRgbaImageFrame)(
   return CreatePacketWithContext(context, packet);
 }
 
-JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateAudioPacket)(
-    JNIEnv* env, jobject thiz, jlong context, jbyteArray data,
-    jint num_channels, jint num_samples) {
-  if (env->GetArrayLength(data) != num_channels * num_samples * 2) {
-    LOG(ERROR) << "Please check the audio data size, "
-                  "has to be num_channels * num_samples * 2 = "
-               << num_channels * num_samples * 2;
-    return 0L;
-  }
-  std::unique_ptr<::mediapipe::Matrix> matrix(
-      new ::mediapipe::Matrix(num_channels, num_samples));
-  // Note, audio_data_ref is really a const jbyte* but this clashes with the
-  // the expectation of ReleaseByteArrayElements below.
-  jbyte* audio_data_ref = env->GetByteArrayElements(data, nullptr);
+static mediapipe::Packet createAudioPacket(const uint8_t* audio_sample,
+                                           int num_samples, int num_channels) {
+  std::unique_ptr<mediapipe::Matrix> matrix(
+      new mediapipe::Matrix(num_channels, num_samples));
   // Preparing and normalize the audio data.
   // kMultiplier is same as what used in av_sync_media_decoder.cc.
   static const float kMultiplier = 1.f / (1 << 15);
   // We try to not assume the Endian order of the data.
-  const uint8_t* audio_sample = reinterpret_cast<uint8_t*>(audio_data_ref);
   for (int sample = 0; sample < num_samples; ++sample) {
     for (int channel = 0; channel < num_channels; ++channel) {
       int16_t value = (audio_sample[1] & 0xff) << 8 | audio_sample[0];
@@ -183,8 +196,30 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateAudioPacket)(
       audio_sample += 2;
     }
   }
+  return mediapipe::Adopt(matrix.release());
+}
+
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateAudioPacket)(
+    JNIEnv* env, jobject thiz, jlong context, jbyteArray data, jint offset,
+    jint num_channels, jint num_samples) {
+  // Note, audio_data_ref is really a const jbyte* but this clashes with the
+  // the expectation of ReleaseByteArrayElements below.
+  jbyte* audio_data_ref = env->GetByteArrayElements(data, nullptr);
+  const uint8_t* audio_sample =
+      reinterpret_cast<uint8_t*>(audio_data_ref) + offset;
+  mediapipe::Packet packet =
+      createAudioPacket(audio_sample, num_samples, num_channels);
   env->ReleaseByteArrayElements(data, audio_data_ref, JNI_ABORT);
-  mediapipe::Packet packet = mediapipe::Adopt(matrix.release());
+  return CreatePacketWithContext(context, packet);
+}
+
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateAudioPacketDirect)(
+    JNIEnv* env, jobject thiz, jlong context, jobject data, jint num_channels,
+    jint num_samples) {
+  const uint8_t* audio_sample =
+      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(data));
+  mediapipe::Packet packet =
+      createAudioPacket(audio_sample, num_samples, num_channels);
   return CreatePacketWithContext(context, packet);
 }
 
@@ -257,8 +292,7 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateMatrix)(
                << rows * cols;
     return 0L;
   }
-  std::unique_ptr<::mediapipe::Matrix> matrix(
-      new ::mediapipe::Matrix(rows, cols));
+  std::unique_ptr<mediapipe::Matrix> matrix(new mediapipe::Matrix(rows, cols));
   // The java and native has the same byte order, by default is little Endian,
   // we can safely copy data directly, we have tests to cover this.
   env->GetFloatArrayRegion(data, 0, rows * cols, matrix->data());
@@ -312,6 +346,7 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateGpuBuffer)(
   mediapipe::Packet packet = mediapipe::MakePacket<mediapipe::GpuBuffer>(
       mediapipe::GlTextureBuffer::Wrap(GL_TEXTURE_2D, name, width, height,
                                        mediapipe::GpuBufferFormat::kBGRA32,
+                                       gpu_resources->gl_context(),
                                        cc_callback));
   return CreatePacketWithContext(context, packet);
 }
@@ -337,6 +372,23 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateFloat32Array)(
   // that this is an array - this way Holder will call delete[].
   mediapipe::Packet packet =
       mediapipe::Adopt(reinterpret_cast<float(*)[]>(floats));
+  return CreatePacketWithContext(context, packet);
+}
+
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateFloat32Vector)(
+    JNIEnv* env, jobject thiz, jlong context, jfloatArray data) {
+  jsize count = env->GetArrayLength(data);
+  jfloat* data_ref = env->GetFloatArrayElements(data, nullptr);
+  // jfloat is a "machine-dependent native type" which represents a 32-bit
+  // float. C++ makes no guarantees about the size of floating point types, and
+  // some exotic architectures don't even have 32-bit floats (or even binary
+  // floats), but on all architectures we care about this is a float.
+  static_assert(std::is_same<float, jfloat>::value, "jfloat must be float");
+  std::unique_ptr<std::vector<float>> floats =
+      absl::make_unique<std::vector<float>>(data_ref, data_ref + count);
+
+  env->ReleaseFloatArrayElements(data, data_ref, JNI_ABORT);
+  mediapipe::Packet packet = mediapipe::Adopt(floats.release());
   return CreatePacketWithContext(context, packet);
 }
 
@@ -377,6 +429,30 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateCalculatorOptions)(
   }
   mediapipe::Packet packet = mediapipe::Adopt(options.release());
   env->ReleaseByteArrayElements(data, data_ref, JNI_ABORT);
+  return CreatePacketWithContext(context, packet);
+}
+
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateProto)(JNIEnv* env,
+                                                                 jobject thiz,
+                                                                 jlong context,
+                                                                 jobject data) {
+  // Convert type_name and value from Java data.
+  static SerializedMessageIds ids(env, data);
+  jstring j_type_name = (jstring)env->GetObjectField(data, ids.type_name_id);
+  std::string type_name =
+      mediapipe::android::JStringToStdString(env, j_type_name);
+  jbyteArray value_array = (jbyteArray)env->GetObjectField(data, ids.value_id);
+  jsize value_len = env->GetArrayLength(value_array);
+  jbyte* value_ref = env->GetByteArrayElements(value_array, nullptr);
+
+  // Create the C++ MessageLite and Packet.
+  mediapipe::Packet packet;
+  auto packet_or = mediapipe::packet_internal::PacketFromDynamicProto(
+      type_name, std::string((char*)value_ref, value_len));
+  if (!ThrowIfError(env, packet_or.status())) {
+    packet = packet_or.ValueOrDie();
+  }
+  env->ReleaseByteArrayElements(value_array, value_ref, JNI_ABORT);
   return CreatePacketWithContext(context, packet);
 }
 

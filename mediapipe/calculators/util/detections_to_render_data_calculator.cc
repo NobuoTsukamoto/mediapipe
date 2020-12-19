@@ -27,6 +27,7 @@ namespace mediapipe {
 
 namespace {
 
+constexpr char kDetectionTag[] = "DETECTION";
 constexpr char kDetectionsTag[] = "DETECTIONS";
 constexpr char kDetectionListTag[] = "DETECTION_LIST";
 constexpr char kRenderDataTag[] = "RENDER_DATA";
@@ -62,6 +63,7 @@ constexpr float kNumScoreDecimalDigitsMultipler = 100;
 // Example config:
 // node {
 //   calculator: "DetectionsToRenderDataCalculator"
+//   input_stream: "DETECTION:detection"
 //   input_stream: "DETECTIONS:detections"
 //   input_stream: "DETECTION_LIST:detection_list"
 //   output_stream: "RENDER_DATA:render_data"
@@ -80,11 +82,11 @@ class DetectionsToRenderDataCalculator : public CalculatorBase {
   DetectionsToRenderDataCalculator& operator=(
       const DetectionsToRenderDataCalculator&) = delete;
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static mediapipe::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Open(CalculatorContext* cc) override;
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
 
  private:
   // These utility methods are supposed to be used only by this class. No
@@ -120,12 +122,16 @@ class DetectionsToRenderDataCalculator : public CalculatorBase {
 };
 REGISTER_CALCULATOR(DetectionsToRenderDataCalculator);
 
-::mediapipe::Status DetectionsToRenderDataCalculator::GetContract(
+mediapipe::Status DetectionsToRenderDataCalculator::GetContract(
     CalculatorContract* cc) {
   RET_CHECK(cc->Inputs().HasTag(kDetectionListTag) ||
-            cc->Inputs().HasTag(kDetectionsTag))
+            cc->Inputs().HasTag(kDetectionsTag) ||
+            cc->Inputs().HasTag(kDetectionTag))
       << "None of the input streams are provided.";
 
+  if (cc->Inputs().HasTag(kDetectionTag)) {
+    cc->Inputs().Tag(kDetectionTag).Set<Detection>();
+  }
   if (cc->Inputs().HasTag(kDetectionListTag)) {
     cc->Inputs().Tag(kDetectionListTag).Set<DetectionList>();
   }
@@ -133,17 +139,17 @@ REGISTER_CALCULATOR(DetectionsToRenderDataCalculator);
     cc->Inputs().Tag(kDetectionsTag).Set<std::vector<Detection>>();
   }
   cc->Outputs().Tag(kRenderDataTag).Set<RenderData>();
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status DetectionsToRenderDataCalculator::Open(
+mediapipe::Status DetectionsToRenderDataCalculator::Open(
     CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status DetectionsToRenderDataCalculator::Process(
+mediapipe::Status DetectionsToRenderDataCalculator::Process(
     CalculatorContext* cc) {
   const auto& options = cc->Options<DetectionsToRenderDataCalculatorOptions>();
   const bool has_detection_from_list =
@@ -155,9 +161,11 @@ REGISTER_CALCULATOR(DetectionsToRenderDataCalculator);
   const bool has_detection_from_vector =
       cc->Inputs().HasTag(kDetectionsTag) &&
       !cc->Inputs().Tag(kDetectionsTag).Get<std::vector<Detection>>().empty();
+  const bool has_single_detection = cc->Inputs().HasTag(kDetectionTag) &&
+                                    !cc->Inputs().Tag(kDetectionTag).IsEmpty();
   if (!options.produce_empty_packet() && !has_detection_from_list &&
-      !has_detection_from_vector) {
-    return ::mediapipe::OkStatus();
+      !has_detection_from_vector && !has_single_detection) {
+    return mediapipe::OkStatus();
   }
 
   // TODO: Add score threshold to
@@ -176,10 +184,14 @@ REGISTER_CALCULATOR(DetectionsToRenderDataCalculator);
       AddDetectionToRenderData(detection, options, render_data.get());
     }
   }
+  if (has_single_detection) {
+    AddDetectionToRenderData(cc->Inputs().Tag(kDetectionTag).Get<Detection>(),
+                             options, render_data.get());
+  }
   cc->Outputs()
       .Tag(kRenderDataTag)
       .Add(render_data.release(), cc->InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 void DetectionsToRenderDataCalculator::SetRenderAnnotationColorThickness(
@@ -223,9 +235,10 @@ void DetectionsToRenderDataCalculator::AddLabels(
     const Detection& detection,
     const DetectionsToRenderDataCalculatorOptions& options,
     float text_line_height, RenderData* render_data) {
-  CHECK(detection.label().empty() || detection.label_id().empty())
-      << "Either std::string or integer labels must be used for detection "
-         "but not both at the same time.";
+  CHECK(detection.label().empty() || detection.label_id().empty() ||
+        detection.label_size() == detection.label_id_size())
+      << "String or integer labels should be of same size. Or only one of them "
+         "is present.";
   const auto num_labels =
       std::max(detection.label_size(), detection.label_id_size());
   CHECK_EQ(detection.score_size(), num_labels)

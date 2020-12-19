@@ -21,7 +21,8 @@ import sys
 
 from absl import app
 from absl import flags
-import tensorflow as tf
+import six
+import tensorflow.compat.v1 as tf
 from mediapipe.util.sequence import media_sequence as ms
 
 FLAGS = flags.FLAGS
@@ -29,7 +30,7 @@ SECONDS_TO_MICROSECONDS = 1000000
 
 
 def bytes23(string):
-  """Creates a bytes string in either Python 2 or  3."""
+  """Creates a bytes string in either Python 2 or 3."""
   if sys.version_info >= (3, 0):
     return bytes(string, 'utf8')
   else:
@@ -54,7 +55,7 @@ def main(argv):
   ms.set_clip_end_timestamp(
       flags.FLAGS.clip_end_time_sec * SECONDS_TO_MICROSECONDS, metadata)
   with open('/tmp/mediapipe/metadata.pb', 'wb') as writer:
-    writer.write(metadata.SerializeToString())
+    writer.write(six.ensure_binary(metadata.SerializeToString()))
 
 
 if __name__ == '__main__':

@@ -73,12 +73,16 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
           {GpuBufferFormat::kBGRA32,
            {
   // internal_format, format, type, downscale
-#ifdef __APPLE__
-               // On Apple platforms, the preferred transfer format is BGRA.
+#if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
+               // On Apple platforms, we have different code paths for iOS
+               // (using CVPixelBuffer) and on macOS (using GlTextureBuffer).
+               // When using CVPixelBuffer, the preferred transfer format is
+               // BGRA.
+               // TODO: Check iOS simulator.
                {GL_RGBA, GL_BGRA, GL_UNSIGNED_BYTE, 1},
 #else
                {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, 1},
-#endif  // __APPLE__
+#endif  // MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
            }},
           {GpuBufferFormat::kOneComponent8,
            {
@@ -117,6 +121,10 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
            {
                // TODO: use GL_HALF_FLOAT_OES on GLES2?
                {GL_RG16F, GL_RG, GL_HALF_FLOAT, 1},
+           }},
+          {GpuBufferFormat::kTwoComponentFloat32,
+           {
+               {GL_RG32F, GL_RG, GL_FLOAT, 1},
            }},
           {GpuBufferFormat::kGrayHalf16,
            {
@@ -191,6 +199,8 @@ ImageFormat::Format ImageFormatForGpuBufferFormat(GpuBufferFormat format) {
       return ImageFormat::YCBCR420P;
     case GpuBufferFormat::kRGB24:
       return ImageFormat::SRGB;
+    case GpuBufferFormat::kTwoComponentFloat32:
+      return ImageFormat::VEC32F2;
     case GpuBufferFormat::kGrayHalf16:
     case GpuBufferFormat::kTwoComponentHalf16:
     case GpuBufferFormat::kRGBAHalf64:
@@ -209,6 +219,8 @@ GpuBufferFormat GpuBufferFormatForImageFormat(ImageFormat::Format format) {
       return GpuBufferFormat::kBGRA32;
     case ImageFormat::VEC32F1:
       return GpuBufferFormat::kGrayFloat32;
+    case ImageFormat::VEC32F2:
+      return GpuBufferFormat::kTwoComponentFloat32;
     case ImageFormat::GRAY8:
       return GpuBufferFormat::kOneComponent8;
     case ImageFormat::YCBCR420P:

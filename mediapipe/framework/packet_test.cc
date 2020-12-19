@@ -145,8 +145,11 @@ struct UnregisteredPairStruct {
   std::string first;
   bool second;
 };
-MEDIAPIPE_REGISTER_TYPE(::mediapipe::RegisteredPairStruct,
+MEDIAPIPE_REGISTER_TYPE(mediapipe::RegisteredPairStruct,
                         "::mediapipe::RegisteredPairStruct", nullptr, nullptr);
+MEDIAPIPE_REGISTER_TYPE(int, "int", nullptr, nullptr);
+MEDIAPIPE_REGISTER_TYPE(float, "float", nullptr, nullptr);
+constexpr bool kHaveUnregisteredTypeNames = MEDIAPIPE_HAS_RTTI;
 
 TEST(PacketTest, TypeRegistrationDebugString) {
   // Test registered type.
@@ -159,12 +162,16 @@ TEST(PacketTest, TypeRegistrationDebugString) {
   // Unregistered type.
   UnregisteredPairStruct u{"s", true};
   Packet packet2 = MakePacket<UnregisteredPairStruct>(u);
+  std::string expected_type_name =
+      (kHaveUnregisteredTypeNames)
+          ? "mediapipe::(anonymous namespace)::UnregisteredPairStruct"
+          : "<unknown>";
   EXPECT_EQ(packet2.DebugString(),
-            "mediapipe::Packet with timestamp: Timestamp::Unset() and type: "
-            "mediapipe::(anonymous namespace)::UnregisteredPairStruct");
+            "mediapipe::Packet with timestamp: Timestamp::Unset() and type: " +
+                expected_type_name);
 }
 
-TEST(PacketTest, CanContainProtobufMessage) {
+TEST(PacketTest, ReturnGenericProtobufMessage) {
   std::unique_ptr<::mediapipe::PacketTestProto> proto_ptr(
       new ::mediapipe::PacketTestProto);
   proto_ptr->add_x(123);
@@ -172,6 +179,15 @@ TEST(PacketTest, CanContainProtobufMessage) {
   EXPECT_EQ(123, dynamic_cast<const ::mediapipe::PacketTestProto&>(
                      packet.Get<proto_ns::Message>())
                      .x(0));
+}
+
+TEST(PacketTest, TryWrongProtobufMessageSubType) {
+  std::unique_ptr<::mediapipe::PacketTestProto> proto_ptr(
+      new ::mediapipe::PacketTestProto);
+  proto_ptr->add_x(123);
+  Packet packet = Adopt(proto_ptr.release());
+  EXPECT_FALSE(packet.ValidateAsType<::mediapipe::SimpleProto>().ok());
+  EXPECT_TRUE(packet.ValidateAsType<::mediapipe::PacketTestProto>().ok());
 }
 
 TEST(PacketTest, GetProtoBase) {
@@ -194,8 +210,8 @@ TEST(PacketTest, ValidateAsProtoMessageLite) {
   Packet packet = Adopt(proto_ptr.release());
   MP_EXPECT_OK(packet.ValidateAsProtoMessageLite());
   Packet packet2 = MakePacket<int>(3);
-  ::mediapipe::Status status = packet2.ValidateAsProtoMessageLite();
-  EXPECT_EQ(status.code(), ::mediapipe::StatusCode::kInvalidArgument);
+  mediapipe::Status status = packet2.ValidateAsProtoMessageLite();
+  EXPECT_EQ(status.code(), mediapipe::StatusCode::kInvalidArgument);
 }
 
 TEST(PacketTest, SyncedPacket) {
@@ -267,11 +283,11 @@ TEST(PacketTest, TestPacketMoveConstructor) {
 TEST(PacketTest, TestPacketConsume) {
   Packet packet1 = MakePacket<int>(33);
   Packet packet_copy = packet1;
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result1 =
+  mediapipe::StatusOr<std::unique_ptr<int>> result1 =
       packet_copy.Consume<int>();
   // Both packet1 and packet_copy own the data, Consume() should return error.
-  ::mediapipe::Status status1 = result1.status();
-  EXPECT_EQ(status1.code(), ::mediapipe::StatusCode::kFailedPrecondition);
+  mediapipe::Status status1 = result1.status();
+  EXPECT_EQ(status1.code(), mediapipe::StatusCode::kFailedPrecondition);
   EXPECT_THAT(status1.message(),
               testing::HasSubstr("isn't the sole owner of the holder"));
   ASSERT_FALSE(packet1.IsEmpty());
@@ -281,7 +297,7 @@ TEST(PacketTest, TestPacketConsume) {
 
   Packet packet2 = MakePacket<int>(33);
   // Types don't match (int vs float).
-  ::mediapipe::StatusOr<std::unique_ptr<float>> result2 =
+  mediapipe::StatusOr<std::unique_ptr<float>> result2 =
       packet2.Consume<float>();
   EXPECT_THAT(
       result2.status().message(),
@@ -291,7 +307,7 @@ TEST(PacketTest, TestPacketConsume) {
 
   // packet3 is the sole owner of the data.
   Packet packet3 = MakePacket<int>(42);
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result3 = packet3.Consume<int>();
+  mediapipe::StatusOr<std::unique_ptr<int>> result3 = packet3.Consume<int>();
   // After Consume(), packet3 should be empty and result3 owns the data.
   EXPECT_TRUE(result3.ok());
   ASSERT_NE(nullptr, result3.ValueOrDie());
@@ -303,7 +319,7 @@ TEST(PacketTest, TestPacketConsumeOrCopy) {
   Packet packet1 = MakePacket<int>(33);
   Packet packet_copy = packet1;
   bool was_copied1 = false;
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result1 =
+  mediapipe::StatusOr<std::unique_ptr<int>> result1 =
       packet_copy.ConsumeOrCopy<int>(&was_copied1);
   // Both packet1 and packet_copy own the data, ConsumeOrCopy() returns a copy
   // of the data and sets packet_copy to empty.
@@ -318,7 +334,7 @@ TEST(PacketTest, TestPacketConsumeOrCopy) {
 
   Packet packet2 = MakePacket<int>(33);
   // Types don't match (int vs float).
-  ::mediapipe::StatusOr<std::unique_ptr<float>> result2 =
+  mediapipe::StatusOr<std::unique_ptr<float>> result2 =
       packet2.ConsumeOrCopy<float>();
   EXPECT_THAT(
       result2.status().message(),
@@ -330,7 +346,7 @@ TEST(PacketTest, TestPacketConsumeOrCopy) {
   bool was_copied3 = false;
   // packet3 is the sole owner of the data. ConsumeOrCopy() transfers the
   // ownership to result3 and makes packet3 empty.
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result3 =
+  mediapipe::StatusOr<std::unique_ptr<int>> result3 =
       packet3.ConsumeOrCopy<int>(&was_copied3);
   EXPECT_FALSE(was_copied3);
   EXPECT_TRUE(result3.ok());
@@ -342,9 +358,9 @@ TEST(PacketTest, TestPacketConsumeOrCopy) {
 TEST(PacketTest, TestConsumeForeignHolder) {
   std::unique_ptr<int> data(new int(33));
   Packet packet = PointToForeign(data.get());
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result = packet.Consume<int>();
+  mediapipe::StatusOr<std::unique_ptr<int>> result = packet.Consume<int>();
   EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.status().code(), ::mediapipe::StatusCode::kInternal);
+  EXPECT_EQ(result.status().code(), mediapipe::StatusCode::kInternal);
   EXPECT_EQ(result.status().message(),
             "Foreign holder can't release data ptr without ownership.");
   ASSERT_FALSE(packet.IsEmpty());
@@ -356,7 +372,7 @@ TEST(PacketTest, TestForeignHolderConsumeOrCopy) {
   Packet packet1 = PointToForeign(data1.get());
   Packet packet_copy = packet1;
   bool was_copied1 = false;
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result1 =
+  mediapipe::StatusOr<std::unique_ptr<int>> result1 =
       packet_copy.ConsumeOrCopy<int>(&was_copied1);
   // After ConsumeOrCopy(), result1 gets the copy of packet_copy's data and
   // packet_copy is set to empty.
@@ -372,7 +388,7 @@ TEST(PacketTest, TestForeignHolderConsumeOrCopy) {
   std::unique_ptr<int> data2(new int(33));
   Packet packet2 = PointToForeign(data2.get());
   bool was_copied2 = false;
-  ::mediapipe::StatusOr<std::unique_ptr<int>> result2 =
+  mediapipe::StatusOr<std::unique_ptr<int>> result2 =
       packet2.ConsumeOrCopy<int>(&was_copied2);
   // After ConsumeOrCopy(), result2 gets the copy of packet2's data and packet2
   // is set to empty.
@@ -386,11 +402,11 @@ TEST(PacketTest, TestForeignHolderConsumeOrCopy) {
 TEST(PacketTest, TestConsumeBoundedArray) {
   Packet packet1 = MakePacket<int[3]>(10, 20, 30);
   Packet packet_copy = packet1;
-  ::mediapipe::StatusOr<std::unique_ptr<int[3]>> result1 =
+  mediapipe::StatusOr<std::unique_ptr<int[3]>> result1 =
       packet_copy.Consume<int[3]>();
   // Both packet1 and packet_copy own the data, Consume() should return error.
-  ::mediapipe::Status status1 = result1.status();
-  EXPECT_EQ(status1.code(), ::mediapipe::StatusCode::kFailedPrecondition);
+  mediapipe::Status status1 = result1.status();
+  EXPECT_EQ(status1.code(), mediapipe::StatusCode::kFailedPrecondition);
   EXPECT_THAT(status1.message(),
               testing::HasSubstr("isn't the sole owner of the holder"));
   ASSERT_FALSE(packet1.IsEmpty());
@@ -406,7 +422,7 @@ TEST(PacketTest, TestConsumeBoundedArray) {
 
   Packet packet2 = MakePacket<int[3]>(40, 50, 60);
   // After Consume(), packet2 should be empty and result2 owns the data.
-  ::mediapipe::StatusOr<std::unique_ptr<int[3]>> result2 =
+  mediapipe::StatusOr<std::unique_ptr<int[3]>> result2 =
       packet2.Consume<int[3]>();
   ASSERT_NE(nullptr, result2.ValueOrDie());
   auto value3 = result2.ValueOrDie().get();
@@ -420,7 +436,7 @@ TEST(PacketTest, TestConsumeOrCopyBoundedArray) {
   Packet packet1 = MakePacket<int[3]>(10, 20, 30);
   Packet packet_copy = packet1;
   bool was_copied1 = false;
-  ::mediapipe::StatusOr<std::unique_ptr<int[3]>> result1 =
+  mediapipe::StatusOr<std::unique_ptr<int[3]>> result1 =
       packet_copy.ConsumeOrCopy<int[3]>(&was_copied1);
   // Both packet1 and packet_copy own the data, ConsumeOrCopy() returns a copy
   // of the data and sets packet_copy to empty.
@@ -443,7 +459,7 @@ TEST(PacketTest, TestConsumeOrCopyBoundedArray) {
   bool was_copied2 = false;
   // packet2 is the sole owner of the data. ConsumeOrCopy() transfers the
   // ownership to result2 and makes packet2 empty.
-  ::mediapipe::StatusOr<std::unique_ptr<int[3]>> result2 =
+  mediapipe::StatusOr<std::unique_ptr<int[3]>> result2 =
       packet2.ConsumeOrCopy<int[3]>(&was_copied2);
   EXPECT_TRUE(result2.ok());
   EXPECT_FALSE(was_copied2);
@@ -453,6 +469,27 @@ TEST(PacketTest, TestConsumeOrCopyBoundedArray) {
   EXPECT_EQ(50, (*value3)[1]);
   EXPECT_EQ(60, (*value3)[2]);
   EXPECT_TRUE(packet2.IsEmpty());
+}
+
+TEST(PacketTest, MessageHolderRegistration) {
+  using testing::Contains;
+  Packet packet = MakePacket<mediapipe::SimpleProto>();
+  ASSERT_EQ(mediapipe::SimpleProto{}.GetTypeName(), "mediapipe.SimpleProto");
+  EXPECT_THAT(packet_internal::MessageHolderRegistry::GetRegisteredNames(),
+              Contains("mediapipe.SimpleProto"));
+}
+
+TEST(PacketTest, PacketFromSerializedProto) {
+  mediapipe::SimpleProto original;
+  original.add_value("foo");
+  std::string serialized = original.SerializeAsString();
+
+  StatusOr<Packet> maybe_packet = packet_internal::PacketFromDynamicProto(
+      "mediapipe.SimpleProto", serialized);
+  MP_ASSERT_OK(maybe_packet);
+  Packet packet = maybe_packet.ValueOrDie();
+  MP_EXPECT_OK(packet.ValidateAsType<::mediapipe::SimpleProto>());
+  EXPECT_FALSE(packet.ValidateAsType<::mediapipe::PacketTestProto>().ok());
 }
 
 }  // namespace

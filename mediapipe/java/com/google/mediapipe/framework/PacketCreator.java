@@ -14,8 +14,10 @@
 
 package com.google.mediapipe.framework;
 
+import com.google.mediapipe.framework.ProtoUtil.SerializedMessage;
 import com.google.protobuf.MessageLite;
 import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
 
 // TODO: use Preconditions in this file.
 /**
@@ -67,11 +69,49 @@ public class PacketCreator {
    * @param numSamples number of samples in the data.
    */
   public Packet createAudioPacket(byte[] data, int numChannels, int numSamples) {
-    if (numChannels * numSamples * 2 != data.length) {
-      throw new RuntimeException("Data doesn't have the correct size.");
-    }
+    checkAudioDataSize(data.length, numChannels, numSamples);
     return Packet.create(
-        nativeCreateAudioPacket(mediapipeGraph.getNativeHandle(), data, numChannels, numSamples));
+        nativeCreateAudioPacket(
+            mediapipeGraph.getNativeHandle(), data, /*offset=*/ 0, numChannels, numSamples));
+  }
+
+  /**
+   * Create a MediaPipe audio packet that is used by most of the audio calculators.
+   *
+   * @param data the raw audio data, bytes per sample is 2. Must either be a direct byte buffer or
+   *     have an array.
+   * @param numChannels number of channels in the raw data.
+   * @param numSamples number of samples in the data.
+   */
+  public Packet createAudioPacket(ByteBuffer data, int numChannels, int numSamples) {
+    checkAudioDataSize(data.remaining(), numChannels, numSamples);
+    if (data.isDirect()) {
+      return Packet.create(
+          nativeCreateAudioPacketDirect(
+              mediapipeGraph.getNativeHandle(), data.slice(), numChannels, numSamples));
+    } else if (data.hasArray()) {
+      return Packet.create(
+          nativeCreateAudioPacket(
+              mediapipeGraph.getNativeHandle(),
+              data.array(),
+              data.arrayOffset() + data.position(),
+              numChannels,
+              numSamples));
+    } else {
+      throw new IllegalArgumentException(
+          "Data must be either a direct byte buffer or be backed by a byte array.");
+    }
+  }
+
+  private static void checkAudioDataSize(int length, int numChannels, int numSamples) {
+    final int expectedLength = numChannels * numSamples * 2;
+    if (expectedLength != length) {
+      throw new IllegalArgumentException(
+          "Please check the audio data size, has to be num_channels * num_samples * 2 = "
+              + expectedLength
+              + " but was "
+              + length);
+    }
   }
 
   /**
@@ -112,6 +152,19 @@ public class PacketCreator {
     }
     return Packet.create(
         nativeCreateRgbaImageFrame(mediapipeGraph.getNativeHandle(), buffer, width, height));
+  }
+
+  /**
+   * Creates a 1 channel float ImageFrame packet.
+   *
+   * <p>Use {@link ByteBuffer#allocateDirect} when allocating the buffer.
+   */
+  public Packet createFloatImageFrame(FloatBuffer buffer, int width, int height) {
+    if (buffer.capacity() != width * height * 4) {
+      throw new RuntimeException("buffer doesn't have the correct size.");
+    }
+    return Packet.create(
+        nativeCreateFloatImageFrame(mediapipeGraph.getNativeHandle(), buffer, width, height));
   }
 
   public Packet createInt16(short value) {
@@ -155,7 +208,7 @@ public class PacketCreator {
   }
 
   public Packet createFloat32Vector(float[] data) {
-    throw new UnsupportedOperationException("Not implemented yet");
+    return Packet.create(nativeCreateFloat32Vector(mediapipeGraph.getNativeHandle(), data));
   }
 
   public Packet createFloat64Vector(double[] data) {
@@ -209,6 +262,13 @@ public class PacketCreator {
   public Packet createCalculatorOptions(MessageLite message) {
     return Packet.create(
         nativeCreateCalculatorOptions(mediapipeGraph.getNativeHandle(), message.toByteArray()));
+  }
+
+  /** Creates a {@link Packet} containing a protobuf MessageLite. */
+  public Packet createProto(MessageLite message) {
+    SerializedMessage serialized = ProtoUtil.pack(message);
+    return Packet.create(
+        nativeCreateProto(mediapipeGraph.getNativeHandle(), serialized));
   }
 
   /** Creates a {@link Packet} containing the given camera intrinsics. */
@@ -274,8 +334,13 @@ public class PacketCreator {
 
   private native long nativeCreateReferencePacket(long context, long packet);
   private native long nativeCreateRgbImage(long context, ByteBuffer buffer, int width, int height);
+
   private native long nativeCreateAudioPacket(
-      long context, byte[] data, int numChannels, int numSamples);
+      long context, byte[] data, int offset, int numChannels, int numSamples);
+
+  private native long nativeCreateAudioPacketDirect(
+      long context, ByteBuffer data, int numChannels, int numSamples);
+
   private native long nativeCreateRgbImageFromRgba(
       long context, ByteBuffer buffer, int width, int height);
 
@@ -284,6 +349,8 @@ public class PacketCreator {
 
   private native long nativeCreateRgbaImageFrame(
       long context, ByteBuffer buffer, int width, int height);
+  private native long nativeCreateFloatImageFrame(
+      long context, FloatBuffer buffer, int width, int height);
   private native long nativeCreateInt16(long context, short value);
   private native long nativeCreateInt32(long context, int value);
   private native long nativeCreateInt64(long context, long value);
@@ -299,7 +366,11 @@ public class PacketCreator {
       long context, int name, int width, int height, TextureReleaseCallback releaseCallback);
   private native long nativeCreateInt32Array(long context, int[] data);
   private native long nativeCreateFloat32Array(long context, float[] data);
+
+  private native long nativeCreateFloat32Vector(long context, float[] data);
+
   private native long nativeCreateStringFromByteArray(long context, byte[] data);
+  private native long nativeCreateProto(long context, SerializedMessage data);
 
   private native long nativeCreateCalculatorOptions(long context, byte[] data);
 

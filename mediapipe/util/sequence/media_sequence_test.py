@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from mediapipe.util.sequence import media_sequence as ms
 
 
@@ -89,6 +89,9 @@ class MediaSequenceTest(tf.test.TestCase):
     ms.add_bbox_xmax((0.47, 0.49), example)
     ms.add_bbox_point_x((0.47, 0.49), example)
     ms.add_bbox_point_y((0.47, 0.49), example)
+    ms.add_bbox_3d_point_x((0.47, 0.49), example)
+    ms.add_bbox_3d_point_y((0.47, 0.49), example)
+    ms.add_bbox_3d_point_z((0.47, 0.49), example)
     ms.add_predicted_bbox_ymin((0.47, 0.49), example)
     ms.add_predicted_bbox_xmin((0.47, 0.49), example)
     ms.add_predicted_bbox_ymax((0.47, 0.49), example)
@@ -125,13 +128,38 @@ class MediaSequenceTest(tf.test.TestCase):
     example = tf.train.SequenceExample()
     boxes = np.array([[0.1, 0.2, 0.3, 0.4],
                       [0.5, 0.6, 0.7, 0.8]])
+    empty_boxes = np.array([])
     ms.add_bbox(boxes, example)
-    ms.add_bbox(boxes, example)
+    ms.add_bbox(empty_boxes, example)
     self.assertEqual(2, ms.get_bbox_size(example))
     self.assertAllClose(boxes, ms.get_bbox_at(0, example))
     self.assertTrue(ms.has_bbox(example))
     ms.clear_bbox(example)
     self.assertEqual(0, ms.get_bbox_size(example))
+
+  def test_point_round_trip(self):
+    example = tf.train.SequenceExample()
+    points = np.array([[0.1, 0.2],
+                       [0.5, 0.6]])
+    ms.add_bbox_point(points, example)
+    ms.add_bbox_point(points, example)
+    self.assertEqual(2, ms.get_bbox_point_size(example))
+    self.assertAllClose(points, ms.get_bbox_point_at(0, example))
+    self.assertTrue(ms.has_bbox_point(example))
+    ms.clear_bbox_point(example)
+    self.assertEqual(0, ms.get_bbox_point_size(example))
+
+  def test_3d_point_round_trip(self):
+    example = tf.train.SequenceExample()
+    points = np.array([[0.1, 0.2, 0.3],
+                       [0.5, 0.6, 0.7]])
+    ms.add_bbox_3d_point(points, example)
+    ms.add_bbox_3d_point(points, example)
+    self.assertEqual(2, ms.get_bbox_3d_point_size(example))
+    self.assertAllClose(points, ms.get_bbox_3d_point_at(0, example))
+    self.assertTrue(ms.has_bbox_3d_point(example))
+    ms.clear_bbox_3d_point(example)
+    self.assertEqual(0, ms.get_bbox_3d_point_size(example))
 
   def test_predicted_bbox_round_trip(self):
     example = tf.train.SequenceExample()

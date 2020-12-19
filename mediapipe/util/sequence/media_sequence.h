@@ -268,6 +268,10 @@ const char kRegionBBoxXMaxKey[] = "region/bbox/xmax";
 const char kRegionPointXKey[] = "region/point/x";
 const char kRegionPointYKey[] = "region/point/y";
 const char kRegionRadiusKey[] = "region/radius";
+// The 3d point can denote keypoints.
+const char kRegion3dPointXKey[] = "region/3d_point/x";
+const char kRegion3dPointYKey[] = "region/3d_point/y";
+const char kRegion3dPointZKey[] = "region/3d_point/z";
 // The number of regions at that timestep.
 const char kRegionNumRegionsKey[] = "region/num_regions";
 // Whether that timestep is annotated for bounding regions.
@@ -333,61 +337,111 @@ void AddPoint(const std::string& prefix,
 void ClearPoint(const std::string& prefix,
                 tensorflow::SequenceExample* sequence);
 
-#define FIXED_PREFIX_BBOX_ACCESSORS(identifier, prefix)                       \
-  inline int CONCAT_STR3(Get, identifier,                                     \
-                         Size)(const tensorflow::SequenceExample& sequence) { \
-    return GetBBoxSize(prefix, sequence);                                     \
-  }                                                                           \
-  inline std::vector<::mediapipe::Location> CONCAT_STR3(Get, identifier, At)( \
-      const tensorflow::SequenceExample& sequence, int index) {               \
-    return GetBBoxAt(prefix, sequence, index);                                \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, identifier)(                                   \
-      const std::vector<::mediapipe::Location>& bboxes,                       \
-      tensorflow::SequenceExample* sequence) {                                \
-    return AddBBox(prefix, bboxes, sequence);                                 \
-  }                                                                           \
-  inline void CONCAT_STR2(                                                    \
-      Clear, identifier)(tensorflow::SequenceExample * sequence) {            \
-    return ClearBBox(prefix, sequence);                                       \
-  }                                                                           \
-  inline int CONCAT_STR3(Get, identifier, PointSize)(                         \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetPointSize(prefix, sequence);                                    \
-  }                                                                           \
-  inline int CONCAT_STR3(Get, identifier, PointSize)(                         \
-      const std::string& name, const tensorflow::SequenceExample& sequence) { \
-    return GetPointSize(name, sequence);                                      \
-  }                                                                           \
-  inline std::vector<std::pair<float, float>> CONCAT_STR3(                    \
-      Get, identifier, PointAt)(const tensorflow::SequenceExample& sequence,  \
-                                int index) {                                  \
-    return GetPointAt(prefix, sequence, index);                               \
-  }                                                                           \
-  inline std::vector<std::pair<float, float>> CONCAT_STR3(                    \
-      Get, identifier, PointAt)(const std::string& name,                      \
-                                const tensorflow::SequenceExample& sequence,  \
-                                int index) {                                  \
-    return GetPointAt(name, sequence, index);                                 \
-  }                                                                           \
-  inline void CONCAT_STR3(Add, identifier, Point)(                            \
-      const std::vector<std::pair<float, float>>& points,                     \
-      tensorflow::SequenceExample* sequence) {                                \
-    return AddPoint(prefix, points, sequence);                                \
-  }                                                                           \
-  inline void CONCAT_STR3(Add, identifier, Point)(                            \
-      const std::string& name,                                                \
-      const std::vector<std::pair<float, float>>& points,                     \
-      tensorflow::SequenceExample* sequence) {                                \
-    return AddPoint(name, points, sequence);                                  \
-  }                                                                           \
-  inline void CONCAT_STR3(Clear, identifier,                                  \
-                          Point)(tensorflow::SequenceExample * sequence) {    \
-    return ClearPoint(prefix, sequence);                                      \
-  }                                                                           \
-  inline void CONCAT_STR3(Clear, identifier, Point)(                          \
-      std::string name, tensorflow::SequenceExample * sequence) {             \
-    return ClearPoint(name, sequence);                                        \
+// The input and output format is a pair of <y, x> coordinates to match the
+// order of bounding box coordinates.
+int Get3dPointSize(const std::string& prefix,
+                   const tensorflow::SequenceExample& sequence);
+std::vector<std::tuple<float, float, float>> Get3dPointAt(
+    const std::string& prefix, const tensorflow::SequenceExample& sequence,
+    int index);
+void Add3dPoint(const std::string& prefix,
+                const std::vector<std::tuple<float, float, float>>& points,
+                tensorflow::SequenceExample* sequence);
+void Clear3dPoint(const std::string& prefix,
+                  tensorflow::SequenceExample* sequence);
+#define FIXED_PREFIX_BBOX_ACCESSORS(identifier, prefix)                        \
+  inline int CONCAT_STR3(Get, identifier,                                      \
+                         Size)(const tensorflow::SequenceExample& sequence) {  \
+    return GetBBoxSize(prefix, sequence);                                      \
+  }                                                                            \
+  inline std::vector<::mediapipe::Location> CONCAT_STR3(Get, identifier, At)(  \
+      const tensorflow::SequenceExample& sequence, int index) {                \
+    return GetBBoxAt(prefix, sequence, index);                                 \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, identifier)(                                    \
+      const std::vector<::mediapipe::Location>& bboxes,                        \
+      tensorflow::SequenceExample* sequence) {                                 \
+    return AddBBox(prefix, bboxes, sequence);                                  \
+  }                                                                            \
+  inline void CONCAT_STR2(                                                     \
+      Clear, identifier)(tensorflow::SequenceExample * sequence) {             \
+    return ClearBBox(prefix, sequence);                                        \
+  }                                                                            \
+  inline int CONCAT_STR3(Get, identifier, PointSize)(                          \
+      const tensorflow::SequenceExample& sequence) {                           \
+    return GetPointSize(prefix, sequence);                                     \
+  }                                                                            \
+  inline int CONCAT_STR3(Get, identifier, PointSize)(                          \
+      const std::string& name, const tensorflow::SequenceExample& sequence) {  \
+    return GetPointSize(name, sequence);                                       \
+  }                                                                            \
+  inline std::vector<std::pair<float, float>> CONCAT_STR3(                     \
+      Get, identifier, PointAt)(const tensorflow::SequenceExample& sequence,   \
+                                int index) {                                   \
+    return GetPointAt(prefix, sequence, index);                                \
+  }                                                                            \
+  inline std::vector<std::pair<float, float>> CONCAT_STR3(                     \
+      Get, identifier, PointAt)(const std::string& name,                       \
+                                const tensorflow::SequenceExample& sequence,   \
+                                int index) {                                   \
+    return GetPointAt(name, sequence, index);                                  \
+  }                                                                            \
+  inline void CONCAT_STR3(Add, identifier, Point)(                             \
+      const std::vector<std::pair<float, float>>& points,                      \
+      tensorflow::SequenceExample* sequence) {                                 \
+    return AddPoint(prefix, points, sequence);                                 \
+  }                                                                            \
+  inline void CONCAT_STR3(Add, identifier, Point)(                             \
+      const std::string& name,                                                 \
+      const std::vector<std::pair<float, float>>& points,                      \
+      tensorflow::SequenceExample* sequence) {                                 \
+    return AddPoint(name, points, sequence);                                   \
+  }                                                                            \
+  inline void CONCAT_STR3(Clear, identifier,                                   \
+                          Point)(tensorflow::SequenceExample * sequence) {     \
+    return ClearPoint(prefix, sequence);                                       \
+  }                                                                            \
+  inline void CONCAT_STR3(Clear, identifier, Point)(                           \
+      std::string name, tensorflow::SequenceExample * sequence) {              \
+    return ClearPoint(name, sequence);                                         \
+  }                                                                            \
+  inline int CONCAT_STR3(Get, identifier, 3dPointSize)(                        \
+      const tensorflow::SequenceExample& sequence) {                           \
+    return Get3dPointSize(prefix, sequence);                                   \
+  }                                                                            \
+  inline int CONCAT_STR3(Get, identifier, 3dPointSize)(                        \
+      const std::string& name, const tensorflow::SequenceExample& sequence) {  \
+    return Get3dPointSize(name, sequence);                                     \
+  }                                                                            \
+  inline std::vector<std::tuple<float, float, float>> CONCAT_STR3(             \
+      Get, identifier, 3dPointAt)(const tensorflow::SequenceExample& sequence, \
+                                  int index) {                                 \
+    return Get3dPointAt(prefix, sequence, index);                              \
+  }                                                                            \
+  inline std::vector<std::tuple<float, float, float>> CONCAT_STR3(             \
+      Get, identifier, 3dPointAt)(const std::string& name,                     \
+                                  const tensorflow::SequenceExample& sequence, \
+                                  int index) {                                 \
+    return Get3dPointAt(name, sequence, index);                                \
+  }                                                                            \
+  inline void CONCAT_STR3(Add, identifier, 3dPoint)(                           \
+      const std::vector<std::tuple<float, float, float>>& points,              \
+      tensorflow::SequenceExample* sequence) {                                 \
+    return Add3dPoint(prefix, points, sequence);                               \
+  }                                                                            \
+  inline void CONCAT_STR3(Add, identifier, 3dPoint)(                           \
+      const std::string& name,                                                 \
+      const std::vector<std::tuple<float, float, float>>& points,              \
+      tensorflow::SequenceExample* sequence) {                                 \
+    return Add3dPoint(name, points, sequence);                                 \
+  }                                                                            \
+  inline void CONCAT_STR3(Clear, identifier,                                   \
+                          3dPoint)(tensorflow::SequenceExample * sequence) {   \
+    return Clear3dPoint(prefix, sequence);                                     \
+  }                                                                            \
+  inline void CONCAT_STR3(Clear, identifier, 3dPoint)(                         \
+      std::string name, tensorflow::SequenceExample * sequence) {              \
+    return Clear3dPoint(name, sequence);                                       \
   }
 
 #define PREFIXED_BBOX(identifier, prefix)                                      \
@@ -404,6 +458,15 @@ void ClearPoint(const std::string& prefix,
                                          kRegionClassIndexKey, prefix)         \
   FIXED_PREFIX_VECTOR_INT64_FEATURE_LIST(CONCAT_STR2(identifier, TrackIndex),  \
                                          kRegionTrackIndexKey, prefix)         \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(                                      \
+      CONCAT_STR2(identifier, LabelConfidence), kRegionLabelConfidenceKey,     \
+      prefix)                                                                  \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(                                      \
+      CONCAT_STR2(identifier, ClassConfidence), kRegionClassConfidenceKey,     \
+      prefix)                                                                  \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(                                      \
+      CONCAT_STR2(identifier, TrackConfidence), kRegionTrackConfidenceKey,     \
+      prefix)                                                                  \
   FIXED_PREFIX_VECTOR_INT64_FEATURE_LIST(CONCAT_STR2(identifier, IsGenerated), \
                                          kRegionIsGeneratedKey, prefix)        \
   FIXED_PREFIX_VECTOR_INT64_FEATURE_LIST(CONCAT_STR2(identifier, IsOccluded),  \
@@ -426,6 +489,12 @@ void ClearPoint(const std::string& prefix,
                                          kRegionPointYKey, prefix)             \
   FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(CONCAT_STR2(identifier, Radius),      \
                                          kRegionRadiusKey, prefix)             \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(CONCAT_STR2(identifier, 3dPointX),    \
+                                         kRegion3dPointXKey, prefix)           \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(CONCAT_STR2(identifier, 3dPointY),    \
+                                         kRegion3dPointYKey, prefix)           \
+  FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(CONCAT_STR2(identifier, 3dPointZ),    \
+                                         kRegion3dPointZKey, prefix)           \
   FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(                                      \
       CONCAT_STR2(identifier, EmbeddingFloats), kRegionEmbeddingFloatKey,      \
       prefix)                                                                  \
@@ -563,6 +632,8 @@ const char kFeatureNumSamplesKey[] = "feature/num_samples";
 const char kFeaturePacketRateKey[] = "feature/packet_rate";
 // For audio, the original audio sampling rate the feature is derived from.
 const char kFeatureAudioSampleRateKey[] = "feature/audio_sample_rate";
+// The feature as a list of floats.
+const char kContextFeatureFloatsKey[] = "context_feature/floats";
 
 // Feature list keys:
 // The feature as a list of floats.
@@ -593,6 +664,8 @@ void AddAudioAsFeature(const std::string& prefix,
 
 PREFIXED_VECTOR_INT64_CONTEXT_FEATURE(FeatureDimensions, kFeatureDimensionsKey);
 PREFIXED_FLOAT_CONTEXT_FEATURE(FeatureRate, kFeatureRateKey);
+PREFIXED_VECTOR_FLOAT_CONTEXT_FEATURE(ContextFeatureFloats,
+                                      kContextFeatureFloatsKey);
 PREFIXED_BYTES_CONTEXT_FEATURE(FeatureBytesFormat, kFeatureBytesFormatKey);
 PREFIXED_VECTOR_FLOAT_FEATURE_LIST(FeatureFloats, kFeatureFloatsKey);
 PREFIXED_VECTOR_BYTES_FEATURE_LIST(FeatureBytes, kFeatureBytesKey);

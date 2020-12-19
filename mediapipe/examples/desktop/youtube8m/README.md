@@ -1,6 +1,8 @@
 ### Steps to run the YouTube-8M feature extraction graph
 
-1.  Checkout the mediapipe repository.
+1.  Checkout the repository and follow
+    [the installation instructions](https://github.com/google/mediapipe/blob/master/docs/getting_started/install.md)
+    to set up MediaPipe.
 
     ```bash
     git clone https://github.com/google/mediapipe.git
@@ -28,6 +30,8 @@
     ```bash
     # cd to the root directory of the MediaPipe repo
     cd -
+
+    pip3 install tf_slim
     python -m mediapipe.examples.desktop.youtube8m.generate_vggish_frozen_graph
     ```
 
@@ -45,7 +49,7 @@
 5.  Run the MediaPipe binary to extract the features.
 
     ```bash
-    bazel build -c opt \
+    bazel build -c opt --linkopt=-s \
       --define MEDIAPIPE_DISABLE_GPU=1 --define no_aws_support=true \
       mediapipe/examples/desktop/youtube8m:extract_yt8m_features
 
@@ -77,7 +81,7 @@
 2.  Copy the baseline model [(model card)](https://drive.google.com/file/d/1xTCi9-Nm9dt2KIk8WR0dDFrIssWawyXy/view) to local.
 
     ```bash
-    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz data.yt8m.org/models/baseline/saved_model.tar.gz
+    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz http://data.yt8m.org/models/baseline/saved_model.tar.gz
 
     tar -xvf /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz -C /tmp/mediapipe
     ```
@@ -85,7 +89,7 @@
 3.  Build and run the inference binary.
 
     ```bash
-    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' \
+    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' --linkopt=-s \
     mediapipe/examples/desktop/youtube8m:model_inference
 
     GLOG_logtostderr=1 bazel-bin/mediapipe/examples/desktop/youtube8m/model_inference \
@@ -103,7 +107,7 @@
 
 
     ```bash
-    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz data.yt8m.org/models/baseline/saved_model.tar.gz
+    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz http://data.yt8m.org/models/baseline/saved_model.tar.gz
 
     tar -xvf /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz -C /tmp/mediapipe
     ```
@@ -111,13 +115,13 @@
 2.  Build the inference binary.
 
     ```bash
-    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' \
+    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' --linkopt=-s \
       mediapipe/examples/desktop/youtube8m:model_inference
     ```
 
 3.  Run the python web server.
 
-    Note: pip install absl-py
+    Note: pip3 install absl-py
 
     ```bash
     python mediapipe/examples/desktop/youtube8m/viewer/server.py --root `pwd`
@@ -132,7 +136,7 @@
 2.  Copy the baseline model [(model card)](https://drive.google.com/file/d/1xTCi9-Nm9dt2KIk8WR0dDFrIssWawyXy/view) to local.
 
     ```bash
-    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz data.yt8m.org/models/baseline/saved_model.tar.gz
+    curl -o /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz http://data.yt8m.org/models/baseline/saved_model.tar.gz
 
     tar -xvf /tmp/mediapipe/yt8m_baseline_saved_model.tar.gz -C /tmp/mediapipe
     ```
@@ -140,7 +144,7 @@
 3.  Build and run the inference binary.
 
     ```bash
-    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' \
+    bazel build -c opt --define='MEDIAPIPE_DISABLE_GPU=1' --linkopt=-s \
       mediapipe/examples/desktop/youtube8m:model_inference
 
     # segment_size is the number of seconds window of frames.

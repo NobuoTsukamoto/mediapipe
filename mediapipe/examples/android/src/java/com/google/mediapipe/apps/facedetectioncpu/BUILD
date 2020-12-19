@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
@@ -32,52 +32,29 @@ cc_library(
     alwayslink = 1,
 )
 
-# Maps the binary graph to an alias (e.g., the app name) for convenience so that the alias can be
-# easily incorporated into the app via, for example,
-# MainActivity.BINARY_GRAPH_NAME = "appname.binarypb".
-genrule(
-    name = "binary_graph",
-    srcs = ["//mediapipe/graphs/face_detection:mobile_cpu_binary_graph"],
-    outs = ["facedetectioncpu.binarypb"],
-    cmd = "cp $< $@",
-)
-
-android_library(
-    name = "mediapipe_lib",
-    srcs = glob(["*.java"]),
-    assets = [
-        ":binary_graph",
-        "//mediapipe/models:face_detection_front.tflite",
-        "//mediapipe/models:face_detection_front_labelmap.txt",
-    ],
-    assets_dir = "",
-    manifest = "AndroidManifest.xml",
-    resource_files = glob(["res/**"]),
-    deps = [
-        ":mediapipe_jni_lib",
-        "//mediapipe/java/com/google/mediapipe/components:android_camerax_helper",
-        "//mediapipe/java/com/google/mediapipe/components:android_components",
-        "//mediapipe/java/com/google/mediapipe/framework:android_framework",
-        "//mediapipe/java/com/google/mediapipe/glutil",
-        "//third_party:androidx_appcompat",
-        "//third_party:androidx_constraint_layout",
-        "//third_party:androidx_legacy_support_v4",
-        "//third_party:androidx_material",
-        "//third_party:androidx_recyclerview",
-        "//third_party:opencv",
-        "@androidx_concurrent_futures//jar",
-        "@androidx_lifecycle//jar",
-        "@com_google_code_findbugs//jar",
-        "@com_google_guava_android//jar",
-    ],
-)
-
 android_binary(
     name = "facedetectioncpu",
-    manifest = "AndroidManifest.xml",
-    manifest_values = {"applicationId": "com.google.mediapipe.apps.facedetectioncpu"},
+    srcs = glob(["*.java"]),
+    assets = [
+        "//mediapipe/graphs/face_detection:face_detection_mobile_cpu.binarypb",
+        "//mediapipe/modules/face_detection:face_detection_front.tflite",
+    ],
+    assets_dir = "",
+    manifest = "//mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:AndroidManifest.xml",
+    manifest_values = {
+        "applicationId": "com.google.mediapipe.apps.facedetectioncpu",
+        "appName": "Face Detection (CPU)",
+        "mainActivity": "com.google.mediapipe.apps.basic.MainActivity",
+        "cameraFacingFront": "True",
+        "binaryGraphName": "face_detection_mobile_cpu.binarypb",
+        "inputVideoStreamName": "input_video",
+        "outputVideoStreamName": "output_video",
+        "flipFramesVertically": "True",
+        "converterNumBuffers": "2",
+    },
     multidex = "native",
     deps = [
-        ":mediapipe_lib",
+        ":mediapipe_jni_lib",
+        "//mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:basic_lib",
     ],
 )

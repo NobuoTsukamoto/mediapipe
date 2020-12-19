@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "mediapipe/calculators/image/image_cropping_calculator.h"
+
 #include <cmath>
 
-#include "mediapipe/calculators/image/image_cropping_calculator.pb.h"
-#include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/formats/rect.pb.h"
@@ -25,7 +25,6 @@
 #include "mediapipe/framework/port/status.h"
 
 #if !defined(MEDIAPIPE_DISABLE_GPU)
-#include "mediapipe/gpu/gl_calculator_helper.h"
 #include "mediapipe/gpu/gl_simple_shaders.h"
 #include "mediapipe/gpu/gpu_buffer.h"
 #include "mediapipe/gpu/shader_util.h"
@@ -52,66 +51,9 @@ constexpr char kWidthTag[] = "WIDTH";
 
 }  // namespace
 
-// Crops the input texture to the given rectangle region. The rectangle can
-// be at arbitrary location on the image with rotation. If there's rotation, the
-// output texture will have the size of the input rectangle. The rotation should
-// be in radian, see rect.proto for detail.
-//
-// Input:
-//   One of the following two tags:
-//   IMAGE - ImageFrame representing the input image.
-//   IMAGE_GPU - GpuBuffer representing the input image.
-//   One of the following two tags (optional if WIDTH/HEIGHT is specified):
-//   RECT - A Rect proto specifying the width/height and location of the
-//          cropping rectangle.
-//   NORM_RECT - A NormalizedRect proto specifying the width/height and location
-//               of the cropping rectangle in normalized coordinates.
-//   Alternative tags to RECT (optional if RECT/NORM_RECT is specified):
-//   WIDTH - The desired width of the output cropped image,
-//           based on image center
-//   HEIGHT - The desired height of the output cropped image,
-//            based on image center
-//
-// Output:
-//   One of the following two tags:
-//   IMAGE - Cropped ImageFrame
-//   IMAGE_GPU - Cropped GpuBuffer.
-//
-// Note: input_stream values take precedence over options defined in the graph.
-//
-class ImageCroppingCalculator : public CalculatorBase {
- public:
-  ImageCroppingCalculator() = default;
-  ~ImageCroppingCalculator() override = default;
-
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-  ::mediapipe::Status Close(CalculatorContext* cc) override;
-
- private:
-  ::mediapipe::Status RenderCpu(CalculatorContext* cc);
-  ::mediapipe::Status RenderGpu(CalculatorContext* cc);
-  ::mediapipe::Status InitGpu(CalculatorContext* cc);
-  void GlRender();
-  void GetOutputDimensions(CalculatorContext* cc, int src_width, int src_height,
-                           int* dst_width, int* dst_height);
-
-  mediapipe::ImageCroppingCalculatorOptions options_;
-
-  bool use_gpu_ = false;
-  // Output texture corners (4) after transoformation in normalized coordinates.
-  float transformed_points_[8];
-#if !defined(MEDIAPIPE_DISABLE_GPU)
-  bool gpu_initialized_ = false;
-  mediapipe::GlCalculatorHelper gpu_helper_;
-  GLuint program_ = 0;
-#endif  //  !MEDIAPIPE_DISABLE_GPU
-};
 REGISTER_CALCULATOR(ImageCroppingCalculator);
 
-::mediapipe::Status ImageCroppingCalculator::GetContract(
-    CalculatorContract* cc) {
+mediapipe::Status ImageCroppingCalculator::GetContract(CalculatorContract* cc) {
   RET_CHECK(cc->Inputs().HasTag(kImageTag) ^ cc->Inputs().HasTag(kImageGpuTag));
   RET_CHECK(cc->Outputs().HasTag(kImageTag) ^
             cc->Outputs().HasTag(kImageGpuTag));
@@ -132,7 +74,28 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   }
 #endif  //  !MEDIAPIPE_DISABLE_GPU
 
-  RET_CHECK(cc->Inputs().HasTag(kRectTag) ^ cc->Inputs().HasTag(kNormRectTag));
+  int flags = 0;
+  if (cc->Inputs().HasTag(kRectTag)) {
+    ++flags;
+  }
+  if (cc->Inputs().HasTag(kWidthTag) && cc->Inputs().HasTag(kHeightTag)) {
+    ++flags;
+  }
+  if (cc->Inputs().HasTag(kNormRectTag)) {
+    ++flags;
+  }
+  if (cc->Options<mediapipe::ImageCroppingCalculatorOptions>()
+          .has_norm_width() &&
+      cc->Options<mediapipe::ImageCroppingCalculatorOptions>()
+          .has_norm_height()) {
+    ++flags;
+  }
+  if (cc->Options<mediapipe::ImageCroppingCalculatorOptions>().has_width() &&
+      cc->Options<mediapipe::ImageCroppingCalculatorOptions>().has_height()) {
+    ++flags;
+  }
+  RET_CHECK(flags == 1) << "Illegal combination of input streams/options.";
+
   if (cc->Inputs().HasTag(kRectTag)) {
     cc->Inputs().Tag(kRectTag).Set<Rect>();
   }
@@ -152,10 +115,10 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
 #endif  //  !MEDIAPIPE_DISABLE_GPU
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ImageCroppingCalculator::Open(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::Open(CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
   if (cc->Inputs().HasTag(kImageGpuTag)) {
@@ -163,6 +126,10 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   }
 
   options_ = cc->Options<mediapipe::ImageCroppingCalculatorOptions>();
+  output_max_width_ =
+      options_.has_output_max_width() ? options_.output_max_width() : FLT_MAX;
+  output_max_height_ =
+      options_.has_output_max_height() ? options_.output_max_height() : FLT_MAX;
 
   if (use_gpu_) {
 #if !defined(MEDIAPIPE_DISABLE_GPU)
@@ -172,38 +139,45 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
 #endif  //  !MEDIAPIPE_DISABLE_GPU
   }
 
-  return ::mediapipe::OkStatus();
+  // Validate border mode.
+  if (use_gpu_) {
+    MP_RETURN_IF_ERROR(ValidateBorderModeForGPU(cc));
+  } else {
+    MP_RETURN_IF_ERROR(ValidateBorderModeForCPU(cc));
+  }
+
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ImageCroppingCalculator::Process(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::Process(CalculatorContext* cc) {
   if (cc->Inputs().HasTag(kRectTag) && cc->Inputs().Tag(kRectTag).IsEmpty()) {
     VLOG(1) << "RECT is empty for timestamp: " << cc->InputTimestamp();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
   if (cc->Inputs().HasTag(kNormRectTag) &&
       cc->Inputs().Tag(kNormRectTag).IsEmpty()) {
     VLOG(1) << "NORM_RECT is empty for timestamp: " << cc->InputTimestamp();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
   if (use_gpu_) {
 #if !defined(MEDIAPIPE_DISABLE_GPU)
     MP_RETURN_IF_ERROR(
-        gpu_helper_.RunInGlContext([this, cc]() -> ::mediapipe::Status {
+        gpu_helper_.RunInGlContext([this, cc]() -> mediapipe::Status {
           if (!gpu_initialized_) {
             MP_RETURN_IF_ERROR(InitGpu(cc));
             gpu_initialized_ = true;
           }
           MP_RETURN_IF_ERROR(RenderGpu(cc));
-          return ::mediapipe::OkStatus();
+          return mediapipe::OkStatus();
         }));
 #endif  //  !MEDIAPIPE_DISABLE_GPU
   } else {
     MP_RETURN_IF_ERROR(RenderCpu(cc));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ImageCroppingCalculator::Close(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::Close(CalculatorContext* cc) {
 #if !defined(MEDIAPIPE_DISABLE_GPU)
   gpu_helper_.RunInGlContext([this] {
     if (program_) glDeleteProgram(program_);
@@ -212,51 +186,50 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   gpu_initialized_ = false;
 #endif  //  !MEDIAPIPE_DISABLE_GPU
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ImageCroppingCalculator::RenderCpu(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::ValidateBorderModeForCPU(
+    CalculatorContext* cc) {
+  int border_mode;
+  return GetBorderModeForOpenCV(cc, &border_mode);
+}
+
+mediapipe::Status ImageCroppingCalculator::ValidateBorderModeForGPU(
+    CalculatorContext* cc) {
+  mediapipe::ImageCroppingCalculatorOptions options =
+      cc->Options<mediapipe::ImageCroppingCalculatorOptions>();
+
+  switch (options.border_mode()) {
+    case mediapipe::ImageCroppingCalculatorOptions::BORDER_ZERO:
+      LOG(WARNING) << "BORDER_ZERO mode is not supported by GPU "
+                   << "implementation and will fall back into BORDER_REPLICATE";
+      break;
+    case mediapipe::ImageCroppingCalculatorOptions::BORDER_REPLICATE:
+      break;
+    default:
+      RET_CHECK_FAIL() << "Unsupported border mode for GPU: "
+                       << options.border_mode();
+  }
+
+  return mediapipe::OkStatus();
+}
+
+mediapipe::Status ImageCroppingCalculator::RenderCpu(CalculatorContext* cc) {
   if (cc->Inputs().Tag(kImageTag).IsEmpty()) {
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
   const auto& input_img = cc->Inputs().Tag(kImageTag).Get<ImageFrame>();
   cv::Mat input_mat = formats::MatView(&input_img);
 
-  float rect_center_x = input_img.Width() / 2.0f;
-  float rect_center_y = input_img.Height() / 2.0f;
-  float rotation = 0.0f;
-  int target_width = input_img.Width();
-  int target_height = input_img.Height();
-  if (cc->Inputs().HasTag(kRectTag)) {
-    const auto& rect = cc->Inputs().Tag(kRectTag).Get<Rect>();
-    if (rect.width() > 0 && rect.height() > 0 && rect.x_center() >= 0 &&
-        rect.y_center() >= 0) {
-      rect_center_x = rect.x_center();
-      rect_center_y = rect.y_center();
-      target_width = rect.width();
-      target_height = rect.height();
-      rotation = rect.rotation();
-    }
-  } else if (cc->Inputs().HasTag(kNormRectTag)) {
-    const auto& rect = cc->Inputs().Tag(kNormRectTag).Get<NormalizedRect>();
-    if (rect.width() > 0.0 && rect.height() > 0.0 && rect.x_center() >= 0.0 &&
-        rect.y_center() >= 0.0) {
-      rect_center_x = std::round(rect.x_center() * input_img.Width());
-      rect_center_y = std::round(rect.y_center() * input_img.Height());
-      target_width = std::round(rect.width() * input_img.Width());
-      target_height = std::round(rect.height() * input_img.Height());
-      rotation = rect.rotation();
-    }
-  } else {
-    if (cc->Inputs().HasTag(kWidthTag) && cc->Inputs().HasTag(kHeightTag)) {
-      target_width = cc->Inputs().Tag(kWidthTag).Get<int>();
-      target_height = cc->Inputs().Tag(kHeightTag).Get<int>();
-    } else if (options_.has_width() && options_.has_height()) {
-      target_width = options_.width();
-      target_height = options_.height();
-    }
-    rotation = options_.rotation();
-  }
+  RectSpec specs = GetCropSpecs(cc, input_img.Width(), input_img.Height());
+  int target_width = specs.width, target_height = specs.height,
+      rect_center_x = specs.center_x, rect_center_y = specs.center_y;
+  float rotation = specs.rotation;
+
+  // Get border mode and value for OpenCV.
+  int border_mode;
+  MP_RETURN_IF_ERROR(GetBorderModeForOpenCV(cc, &border_mode));
 
   const cv::RotatedRect min_rect(cv::Point2f(rect_center_x, rect_center_y),
                                  cv::Size2f(target_width, target_height),
@@ -264,20 +237,29 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   cv::Mat src_points;
   cv::boxPoints(min_rect, src_points);
 
+  float output_width = min_rect.size.width;
+  float output_height = min_rect.size.height;
+  float scale = std::min({1.0f, output_max_width_ / output_width,
+                          output_max_height_ / output_height});
+  output_width *= scale;
+  output_height *= scale;
+
   float dst_corners[8] = {0,
-                          min_rect.size.height - 1,
+                          output_height - 1,
                           0,
                           0,
-                          min_rect.size.width - 1,
+                          output_width - 1,
                           0,
-                          min_rect.size.width - 1,
-                          min_rect.size.height - 1};
+                          output_width - 1,
+                          output_height - 1};
   cv::Mat dst_points = cv::Mat(4, 2, CV_32F, dst_corners);
   cv::Mat projection_matrix =
       cv::getPerspectiveTransform(src_points, dst_points);
   cv::Mat cropped_image;
   cv::warpPerspective(input_mat, cropped_image, projection_matrix,
-                      cv::Size(min_rect.size.width, min_rect.size.height));
+                      cv::Size(output_width, output_height),
+                      /* flags = */ 0,
+                      /* borderMode = */ border_mode);
 
   std::unique_ptr<ImageFrame> output_frame(new ImageFrame(
       input_img.Format(), cropped_image.cols, cropped_image.rows));
@@ -285,12 +267,12 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   cropped_image.copyTo(output_mat);
   cc->Outputs().Tag(kImageTag).Add(output_frame.release(),
                                    cc->InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ImageCroppingCalculator::RenderGpu(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::RenderGpu(CalculatorContext* cc) {
   if (cc->Inputs().Tag(kImageGpuTag).IsEmpty()) {
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 #if !defined(MEDIAPIPE_DISABLE_GPU)
   const Packet& input_packet = cc->Inputs().Tag(kImageGpuTag).Value();
@@ -325,7 +307,7 @@ REGISTER_CALCULATOR(ImageCroppingCalculator);
   dst_tex.Release();
 #endif  //  !MEDIAPIPE_DISABLE_GPU
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 void ImageCroppingCalculator::GlRender() {
@@ -376,7 +358,7 @@ void ImageCroppingCalculator::GlRender() {
 #endif  //  !MEDIAPIPE_DISABLE_GPU
 }
 
-::mediapipe::Status ImageCroppingCalculator::InitGpu(CalculatorContext* cc) {
+mediapipe::Status ImageCroppingCalculator::InitGpu(CalculatorContext* cc) {
 #if !defined(MEDIAPIPE_DISABLE_GPU)
   const GLint attr_location[NUM_ATTRIBUTES] = {
       ATTRIB_VERTEX,
@@ -425,7 +407,7 @@ void ImageCroppingCalculator::GlRender() {
   glUniform1i(glGetUniformLocation(program_, "input_frame"), 1);
 #endif  //  !MEDIAPIPE_DISABLE_GPU
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 // For GPU only.
@@ -433,46 +415,10 @@ void ImageCroppingCalculator::GetOutputDimensions(CalculatorContext* cc,
                                                   int src_width, int src_height,
                                                   int* dst_width,
                                                   int* dst_height) {
-  // Get the size of the cropping box.
-  int crop_width = src_width;
-  int crop_height = src_height;
-  // Get the center of cropping box. Default is the at the center.
-  int x_center = src_width / 2;
-  int y_center = src_height / 2;
-  // Get the rotation of the cropping box.
-  float rotation = 0.0f;
-  if (cc->Inputs().HasTag(kRectTag)) {
-    const auto& rect = cc->Inputs().Tag(kRectTag).Get<Rect>();
-    // Only use the rect if it is valid.
-    if (rect.width() > 0 && rect.height() > 0 && rect.x_center() >= 0 &&
-        rect.y_center() >= 0) {
-      x_center = rect.x_center();
-      y_center = rect.y_center();
-      crop_width = rect.width();
-      crop_height = rect.height();
-      rotation = rect.rotation();
-    }
-  } else if (cc->Inputs().HasTag(kNormRectTag)) {
-    const auto& rect = cc->Inputs().Tag(kNormRectTag).Get<NormalizedRect>();
-    // Only use the rect if it is valid.
-    if (rect.width() > 0.0 && rect.height() > 0.0 && rect.x_center() >= 0.0 &&
-        rect.y_center() >= 0.0) {
-      x_center = std::round(rect.x_center() * src_width);
-      y_center = std::round(rect.y_center() * src_height);
-      crop_width = std::round(rect.width() * src_width);
-      crop_height = std::round(rect.height() * src_height);
-      rotation = rect.rotation();
-    }
-  } else {
-    if (cc->Inputs().HasTag(kWidthTag) && cc->Inputs().HasTag(kHeightTag)) {
-      crop_width = cc->Inputs().Tag(kWidthTag).Get<int>();
-      crop_height = cc->Inputs().Tag(kHeightTag).Get<int>();
-    } else if (options_.has_width() && options_.has_height()) {
-      crop_width = options_.width();
-      crop_height = options_.height();
-    }
-    rotation = options_.rotation();
-  }
+  RectSpec specs = GetCropSpecs(cc, src_width, src_height);
+  int crop_width = specs.width, crop_height = specs.height,
+      x_center = specs.center_x, y_center = specs.center_y;
+  float rotation = specs.rotation;
 
   const float half_width = crop_width / 2.0f;
   const float half_height = crop_height / 2.0f;
@@ -503,9 +449,108 @@ void ImageCroppingCalculator::GetOutputDimensions(CalculatorContext* cc,
 
   int width = static_cast<int>(std::round((col_max - col_min) * src_width));
   int height = static_cast<int>(std::round((row_max - row_min) * src_height));
+
+  float scale =
+      std::min({1.0f, output_max_width_ / width, output_max_height_ / height});
+  width *= scale;
+  height *= scale;
+
   // Minimum output dimension 1x1 prevents creation of textures with 0x0.
   *dst_width = std::max(1, width);
   *dst_height = std::max(1, height);
+}
+
+RectSpec ImageCroppingCalculator::GetCropSpecs(const CalculatorContext* cc,
+                                               int src_width, int src_height) {
+  // Get the size of the cropping box.
+  int crop_width = src_width;
+  int crop_height = src_height;
+  // Get the center of cropping box. Default is the at the center.
+  int x_center = src_width / 2;
+  int y_center = src_height / 2;
+  // Get the rotation of the cropping box.
+  float rotation = 0.0f;
+  // Get the normalized width and height if specified by the inputs or options.
+  float normalized_width = 0.0f;
+  float normalized_height = 0.0f;
+
+  mediapipe::ImageCroppingCalculatorOptions options =
+      cc->Options<mediapipe::ImageCroppingCalculatorOptions>();
+
+  // width/height, norm_width/norm_height from input streams take precednece.
+  if (cc->Inputs().HasTag(kRectTag)) {
+    const auto& rect = cc->Inputs().Tag(kRectTag).Get<Rect>();
+    // Only use the rect if it is valid.
+    if (rect.width() > 0 && rect.height() > 0 && rect.x_center() >= 0 &&
+        rect.y_center() >= 0) {
+      x_center = rect.x_center();
+      y_center = rect.y_center();
+      crop_width = rect.width();
+      crop_height = rect.height();
+      rotation = rect.rotation();
+    }
+  } else if (cc->Inputs().HasTag(kNormRectTag)) {
+    const auto& norm_rect =
+        cc->Inputs().Tag(kNormRectTag).Get<NormalizedRect>();
+    if (norm_rect.width() > 0.0 && norm_rect.height() > 0.0) {
+      normalized_width = norm_rect.width();
+      normalized_height = norm_rect.height();
+      x_center = std::round(norm_rect.x_center() * src_width);
+      y_center = std::round(norm_rect.y_center() * src_height);
+      rotation = norm_rect.rotation();
+    }
+  } else if (cc->Inputs().HasTag(kWidthTag) &&
+             cc->Inputs().HasTag(kHeightTag)) {
+    crop_width = cc->Inputs().Tag(kWidthTag).Get<int>();
+    crop_height = cc->Inputs().Tag(kHeightTag).Get<int>();
+  } else if (options.has_width() && options.has_height()) {
+    crop_width = options.width();
+    crop_height = options.height();
+  } else if (options.has_norm_width() && options.has_norm_height()) {
+    normalized_width = options.norm_width();
+    normalized_height = options.norm_height();
+  }
+
+  // Get the crop width and height from the normalized width and height.
+  if (normalized_width > 0 && normalized_height > 0) {
+    crop_width = std::round(normalized_width * src_width);
+    crop_height = std::round(normalized_height * src_height);
+  }
+
+  // Rotation and center values from input streams take precedence, so only
+  // look at those values in the options if kRectTag and kNormRectTag are not
+  // present from the inputs.
+  if (!cc->Inputs().HasTag(kRectTag) && !cc->Inputs().HasTag(kNormRectTag)) {
+    if (options.has_norm_center_x() && options.has_norm_center_y()) {
+      x_center = std::round(options.norm_center_x() * src_width);
+      y_center = std::round(options.norm_center_y() * src_height);
+    }
+    if (options.has_rotation()) {
+      rotation = options.rotation();
+    }
+  }
+
+  return {crop_width, crop_height, x_center, y_center, rotation};
+}
+
+mediapipe::Status ImageCroppingCalculator::GetBorderModeForOpenCV(
+    CalculatorContext* cc, int* border_mode) {
+  mediapipe::ImageCroppingCalculatorOptions options =
+      cc->Options<mediapipe::ImageCroppingCalculatorOptions>();
+
+  switch (options.border_mode()) {
+    case mediapipe::ImageCroppingCalculatorOptions::BORDER_ZERO:
+      *border_mode = cv::BORDER_CONSTANT;
+      break;
+    case mediapipe::ImageCroppingCalculatorOptions::BORDER_REPLICATE:
+      *border_mode = cv::BORDER_REPLICATE;
+      break;
+    default:
+      RET_CHECK_FAIL() << "Unsupported border mode for CPU: "
+                       << options.border_mode();
+  }
+
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

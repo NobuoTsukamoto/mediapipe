@@ -42,10 +42,10 @@ class GlCalculatorHelperImpl {
       CalculatorContext* calculator_context);
 
   GlTexture CreateSourceTexture(const ImageFrame& image_frame);
-  GlTexture CreateSourceTexture(const GpuBuffer& pixel_buffer);
+  GlTexture CreateSourceTexture(const GpuBuffer& gpu_buffer);
 
   // Note: multi-plane support is currently only available on iOS.
-  GlTexture CreateSourceTexture(const GpuBuffer& pixel_buffer, int plane);
+  GlTexture CreateSourceTexture(const GpuBuffer& gpu_buffer, int plane);
 
   // Creates a framebuffer and returns the texture that it is bound to.
   GlTexture CreateDestinationTexture(int output_width, int output_height,
@@ -83,6 +83,10 @@ class GlCalculatorHelperImpl {
   GLuint framebuffer_ = 0;
 
   GpuResources& gpu_resources_;
+
+  // Necessary to compute for a given GlContext in order to properly enforce the
+  // SetStandardTextureParams.
+  bool can_linear_filter_float_textures_;
 };
 
 }  // namespace mediapipe

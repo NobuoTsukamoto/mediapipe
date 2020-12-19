@@ -18,11 +18,12 @@
 
 #include "absl/synchronization/mutex.h"
 #include "mediapipe/framework/port/logging.h"
+#include "mediapipe/java/com/google/mediapipe/framework/jni/class_registry.h"
 
 namespace {
 
 ABSL_CONST_INIT absl::Mutex g_jvm_mutex(absl::kConstInit);
-JavaVM* g_jvm GUARDED_BY(g_jvm_mutex);
+JavaVM* g_jvm ABSL_GUARDED_BY(g_jvm_mutex);
 
 class JvmThread {
  public:
@@ -111,9 +112,16 @@ std::string JStringToStdString(JNIEnv* env, jstring jstr) {
 }
 
 jthrowable CreateMediaPipeException(JNIEnv* env, mediapipe::Status status) {
-  jclass status_cls =
-      env->FindClass("com/google/mediapipe/framework/MediaPipeException");
-  jmethodID status_ctr = env->GetMethodID(status_cls, "<init>", "(I[B)V");
+  auto& class_registry = mediapipe::android::ClassRegistry::GetInstance();
+  std::string mpe_class_name = class_registry.GetClassName(
+      mediapipe::android::ClassRegistry::kMediaPipeExceptionClassName);
+  std::string mpe_constructor_name = class_registry.GetMethodName(
+      mediapipe::android::ClassRegistry::kMediaPipeExceptionClassName,
+      "<init>");
+
+  jclass status_cls = env->FindClass(mpe_class_name.c_str());
+  jmethodID status_ctr =
+      env->GetMethodID(status_cls, mpe_constructor_name.c_str(), "(I[B)V");
   int length = status.message().length();
   jbyteArray message_bytes = env->NewByteArray(length);
   env->SetByteArrayRegion(message_bytes, 0, length,
@@ -121,6 +129,21 @@ jthrowable CreateMediaPipeException(JNIEnv* env, mediapipe::Status status) {
                               std::string(status.message()).c_str())));
   return reinterpret_cast<jthrowable>(
       env->NewObject(status_cls, status_ctr, status.code(), message_bytes));
+}
+
+bool ThrowIfError(JNIEnv* env, mediapipe::Status status) {
+  if (!status.ok()) {
+    env->Throw(mediapipe::android::CreateMediaPipeException(env, status));
+    return true;
+  }
+  return false;
+}
+
+SerializedMessageIds::SerializedMessageIds(JNIEnv* env, jobject data) {
+  jclass j_class = reinterpret_cast<jclass>(env->NewGlobalRef(env->FindClass(
+      "com/google/mediapipe/framework/ProtoUtil$SerializedMessage")));
+  type_name_id = env->GetFieldID(j_class, "typeName", "Ljava/lang/String;");
+  value_id = env->GetFieldID(j_class, "value", "[B");
 }
 
 }  // namespace android

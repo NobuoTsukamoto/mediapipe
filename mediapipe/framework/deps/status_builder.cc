@@ -68,16 +68,16 @@ StatusBuilder::operator Status() && {
   return JoinMessageToStatus();
 }
 
-::mediapipe::Status StatusBuilder::JoinMessageToStatus() {
+mediapipe::Status StatusBuilder::JoinMessageToStatus() {
   std::string message;
   if (join_style_ == MessageJoinStyle::kAnnotate) {
     if (!status_.ok()) {
-      message = absl::StrCat(status_.error_message(), "; ", stream_->str());
+      message = absl::StrCat(status_.message(), "; ", stream_->str());
     }
   } else {
     message = join_style_ == MessageJoinStyle::kPrepend
-                  ? absl::StrCat(stream_->str(), status_.error_message())
-                  : absl::StrCat(status_.error_message(), stream_->str());
+                  ? absl::StrCat(stream_->str(), status_.message())
+                  : absl::StrCat(status_.message(), stream_->str());
   }
   return Status(status_.code(), message);
 }

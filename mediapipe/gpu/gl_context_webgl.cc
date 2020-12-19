@@ -23,6 +23,7 @@
 #include "mediapipe/gpu/gl_context_internal.h"
 
 #if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
 
 namespace mediapipe {
 
@@ -62,8 +63,48 @@ GlContext::StatusOrGlContext GlContext::Create(
   // pushing resulting texture through MediaPipe pipeline.
   attrs.preserveDrawingBuffer = 0;
 
-  // We use id of "0" for now to target our webassembly Module.canvas
-  // specifically for all GL contexts.
+  // Since the Emscripten canvas target finding function is visible from here,
+  // we hijack findCanvasEventTarget directly for enforcing old Module.canvas
+  // behavior if the user desires, falling back to the new DOM element CSS
+  // selector behavior next if that is specified, and finally just allowing the
+  // lookup to proceed on a null target.
+  // TODO: Ensure this works with all options (in particular,
+  //   multithreading options, like the special-case combination of USE_PTHREADS
+  //   and OFFSCREEN_FRAMEBUFFER)
+  EM_ASM(let init_once = true; if (init_once) {
+    const cachedFindCanvasEventTarget = findCanvasEventTarget;
+
+    if (typeof cachedFindCanvasEventTarget != = 'function') {
+      if (typeof console != = 'undefined') {
+        console.error(
+            'Expected Emscripten global function ' +
+            '"findCanvasEventTarget" not found. WebGL context creation ' +
+            'may fail.');
+      }
+      return;
+    }
+
+    findCanvasEventTarget = function(target) {
+      if (Module && Module.canvas) {
+        return Module.canvas;
+      } else if (Module && Module.canvasCssSelector) {
+        return cachedFindCanvasEventTarget(Module.canvasCssSelector);
+      } else {
+        if (typeof console != = 'undefined') {
+          console.warn('Module properties canvas and canvasCssSelector not ' +
+                       'found during WebGL context creation.');
+        }
+        // We still go through with the find attempt, although for most use
+        // cases it will not succeed, just in case the user does want to fall-
+        // back.
+        return cachedFindCanvasEventTarget(target);
+      }
+    };  // NOLINT: Necessary semicolon.
+    init_once = false;
+  });
+
+  // Note: below id parameter is only actually used if both Module.canvas and
+  // Module.canvasCssSelector are undefined.
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_handle =
       emscripten_webgl_create_context(0 /* id */, &attrs);
 
@@ -73,6 +114,9 @@ GlContext::StatusOrGlContext GlContext::Create(
     return ::mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
            << "emscripten_webgl_create_context() returned error "
            << context_handle;
+  } else {
+    emscripten_webgl_get_context_attributes(context_handle, &attrs);
+    webgl_version = attrs.majorVersion;
   }
   context_ = context_handle;
   attrs_ = attrs;
@@ -97,8 +141,8 @@ GlContext::StatusOrGlContext GlContext::Create(
   }
   MP_RETURN_IF_ERROR(status);
 
-  LOG(INFO) << "Successfully created a WebGL Context with major version "
-            << gl_major_version_ << " and context " << context_;
+  LOG(INFO) << "Successfully created a WebGL context with major version "
+            << gl_major_version_ << " and handle " << context_;
 
   return ::mediapipe::OkStatus();
 }
@@ -114,6 +158,9 @@ void GlContext::DestroyContext() {
     EMSCRIPTEN_RESULT res = emscripten_webgl_destroy_context(context_);
     if (res != EMSCRIPTEN_RESULT_SUCCESS) {
       LOG(ERROR) << "emscripten_webgl_destroy_context() returned error " << res;
+    } else {
+      LOG(INFO) << "Successfully destroyed WebGL context with handle "
+                << context_;
     }
     context_ = 0;
   }

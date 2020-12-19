@@ -15,6 +15,7 @@
 #include "mediapipe/framework/calculator_base.h"
 
 // TODO: Move protos in another CL after the C++ code migration.
+#include "absl/container/flat_hash_set.h"
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_context_manager.h"
@@ -40,7 +41,7 @@ namespace test_ns {
 // streams and input side packets.
 class DeadEndCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       cc->Inputs().Index(i).SetAny();
     }
@@ -50,16 +51,16 @@ class DeadEndCalculator : public CalculatorBase {
     for (int i = 0; i < cc->InputSidePackets().NumEntries(); ++i) {
       cc->InputSidePackets().Index(i).SetAny();
     }
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Open(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  mediapipe::Status Process(CalculatorContext* cc) override {
     if (cc->Inputs().NumEntries() > 0) {
-      return ::mediapipe::OkStatus();
+      return mediapipe::OkStatus();
     } else {
       // This is a source calculator, but we don't produce any outputs.
       return tool::StatusStop();
@@ -72,14 +73,14 @@ namespace whitelisted_ns {
 
 class DeadCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
-    return ::mediapipe::OkStatus();
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Open(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Process(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
 };
 
@@ -88,14 +89,14 @@ class DeadCalculator : public CalculatorBase {
 
 class EndCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
-    return ::mediapipe::OkStatus();
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Open(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Process(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
 };
 REGISTER_CALCULATOR(::mediapipe::EndCalculator);
@@ -127,7 +128,6 @@ TEST(CalculatorTest, SourceProcessOrder) {
   CalculatorContext calculator_context(&calculator_state,
                                        tool::CreateTagMap({}).ValueOrDie(),
                                        output_stream_managers.TagMap());
-  InputStreamShardSet& input_set = calculator_context.Inputs();
   OutputStreamShardSet& output_set = calculator_context.Outputs();
   output_set.Index(0).SetSpec(output_stream_managers.Index(0).Spec());
   output_set.Index(0).SetNextTimestampBound(Timestamp(10));
@@ -135,19 +135,6 @@ TEST(CalculatorTest, SourceProcessOrder) {
   output_set.Index(1).SetNextTimestampBound(Timestamp(11));
   CalculatorContextManager().PushInputTimestampToContext(
       &calculator_context, Timestamp::Unstarted());
-
-  InputStreamSet input_streams(input_set.TagMap());
-  OutputStreamSet output_streams(output_set.TagMap());
-  for (CollectionItemId id = input_streams.BeginId();
-       id < input_streams.EndId(); ++id) {
-    input_streams.Get(id) = &input_set.Get(id);
-  }
-  for (CollectionItemId id = output_streams.BeginId();
-       id < output_streams.EndId(); ++id) {
-    output_streams.Get(id) = &output_set.Get(id);
-  }
-  calculator_state.SetInputStreamSet(&input_streams);
-  calculator_state.SetOutputStreamSet(&output_streams);
 
   test_ns::DeadEndCalculator calculator;
   EXPECT_EQ(Timestamp(10), calculator.SourceProcessOrder(&calculator_context));
@@ -158,11 +145,11 @@ TEST(CalculatorTest, SourceProcessOrder) {
 // Tests registration of a calculator within a namespace.
 // DeadEndCalculator is registered in namespace "mediapipe::test_ns".
 TEST(CalculatorTest, CreateByName) {
-  MP_EXPECT_OK(CalculatorBaseRegistry::CreateByName(  //
-      "mediapipe.test_ns.DeadEndCalculator"));
+  MP_EXPECT_OK(CalculatorBaseRegistry::CreateByNameInNamespace(  //
+      "", "mediapipe.test_ns.DeadEndCalculator"));
 
-  MP_EXPECT_OK(CalculatorBaseRegistry::CreateByName(  //
-      ".mediapipe.test_ns.DeadEndCalculator"));
+  MP_EXPECT_OK(CalculatorBaseRegistry::CreateByNameInNamespace(  //
+      "", ".mediapipe.test_ns.DeadEndCalculator"));
 
   MP_EXPECT_OK(CalculatorBaseRegistry::CreateByNameInNamespace(  //
       "alpha", ".mediapipe.test_ns.DeadEndCalculator"));
@@ -180,20 +167,20 @@ TEST(CalculatorTest, CreateByName) {
                 "mediapipe", "DeadEndCalculator")
                 .status()
                 .code(),
-            ::mediapipe::StatusCode::kNotFound);
+            mediapipe::StatusCode::kNotFound);
 
   EXPECT_EQ(CalculatorBaseRegistry::CreateByName(  //
                 "DeadEndCalculator")
                 .status()
                 .code(),
-            ::mediapipe::StatusCode::kNotFound);
+            mediapipe::StatusCode::kNotFound);
 }
 
 // Tests registration of a calculator within a whitelisted namespace.
 TEST(CalculatorTest, CreateByNameWhitelisted) {
   // Reset the registration namespace whitelist.
-  *const_cast<std::unordered_set<std::string>*>(
-      &NamespaceWhitelist::TopNamespaces()) = std::unordered_set<std::string>{
+  *const_cast<absl::flat_hash_set<std::string>*>(
+      &NamespaceWhitelist::TopNamespaces()) = absl::flat_hash_set<std::string>{
       "mediapipe::test_ns::whitelisted_ns",
       "mediapipe",
   };
@@ -201,7 +188,8 @@ TEST(CalculatorTest, CreateByNameWhitelisted) {
   // Register a whitelisted calculator.
   CalculatorBaseRegistry::Register(
       "::mediapipe::test_ns::whitelisted_ns::DeadCalculator",
-      absl::make_unique< ::mediapipe::test_ns::whitelisted_ns::DeadCalculator>);
+      absl::make_unique<internal::CalculatorBaseFactoryFor<
+          mediapipe::test_ns::whitelisted_ns::DeadCalculator>>);
 
   // A whitelisted calculator can be found in its own namespace.
   MP_EXPECT_OK(CalculatorBaseRegistry::CreateByNameInNamespace(  //

@@ -22,13 +22,15 @@
 
 namespace mediapipe {
 
-::mediapipe::Status InputStreamHandler::InitializeInputStreamManagers(
+using SyncSet = InputStreamHandler::SyncSet;
+
+mediapipe::Status InputStreamHandler::InitializeInputStreamManagers(
     InputStreamManager* flat_input_stream_managers) {
   for (CollectionItemId id = input_stream_managers_.BeginId();
        id < input_stream_managers_.EndId(); ++id) {
     input_stream_managers_.Get(id) = &flat_input_stream_managers[id.value()];
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 InputStreamManager* InputStreamHandler::GetInputStreamManager(
@@ -36,7 +38,7 @@ InputStreamManager* InputStreamHandler::GetInputStreamManager(
   return input_stream_managers_.Get(id);
 }
 
-::mediapipe::Status InputStreamHandler::SetupInputShards(
+mediapipe::Status InputStreamHandler::SetupInputShards(
     InputStreamShardSet* input_shards) {
   RET_CHECK(input_shards);
   for (CollectionItemId id = input_stream_managers_.BeginId();
@@ -46,7 +48,7 @@ InputStreamManager* InputStreamHandler::GetInputStreamManager(
     input_shards->Get(id).SetName(&manager->Name());
     input_shards->Get(id).SetHeader(manager->Header());
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 std::vector<std::pair<std::string, int>>
@@ -66,7 +68,7 @@ void InputStreamHandler::PrepareForRun(
     std::function<void()> headers_ready_callback,
     std::function<void()> notification_callback,
     std::function<void(CalculatorContext*)> schedule_callback,
-    std::function<void(::mediapipe::Status)> error_callback) {
+    std::function<void(mediapipe::Status)> error_callback) {
   headers_ready_callback_ = std::move(headers_ready_callback);
   notification_ = std::move(notification_callback);
   schedule_callback_ = std::move(schedule_callback);
@@ -92,8 +94,7 @@ void InputStreamHandler::SetQueueSizeCallbacks(
 }
 
 void InputStreamHandler::SetHeader(CollectionItemId id, const Packet& header) {
-  ::mediapipe::Status result =
-      input_stream_managers_.Get(id)->SetHeader(header);
+  mediapipe::Status result = input_stream_managers_.Get(id)->SetHeader(header);
   if (!result.ok()) {
     error_callback_(result);
     return;
@@ -173,9 +174,9 @@ bool InputStreamHandler::ScheduleInvocations(int max_allowance,
       }
       CalculatorContext* default_context =
           calculator_context_manager_->GetDefaultCalculatorContext();
-      ::mediapipe::LogEvent(default_context->GetProfilingContext(),
-                            TraceEvent(TraceEvent::NOT_READY)
-                                .set_node_id(default_context->NodeId()));
+      mediapipe::LogEvent(default_context->GetProfilingContext(),
+                          TraceEvent(TraceEvent::NOT_READY)
+                              .set_node_id(default_context->NodeId()));
       break;
     } else if (node_readiness == NodeReadiness::kReadyForProcess) {
       CalculatorContext* calculator_context =
@@ -191,9 +192,9 @@ bool InputStreamHandler::ScheduleInvocations(int max_allowance,
         schedule_callback_(calculator_context);
         ++invocations_scheduled;
       }
-      ::mediapipe::LogEvent(calculator_context->GetProfilingContext(),
-                            TraceEvent(TraceEvent::READY_FOR_PROCESS)
-                                .set_node_id(calculator_context->NodeId()));
+      mediapipe::LogEvent(calculator_context->GetProfilingContext(),
+                          TraceEvent(TraceEvent::READY_FOR_PROCESS)
+                              .set_node_id(calculator_context->NodeId()));
     } else {
       CHECK(node_readiness == NodeReadiness::kReadyForClose);
       // If any parallel invocations are in progress or a calculator context has
@@ -212,9 +213,9 @@ bool InputStreamHandler::ScheduleInvocations(int max_allowance,
       schedule_callback_(default_context);
       ++invocations_scheduled;
       prepared_context_for_close_ = true;
-      ::mediapipe::LogEvent(default_context->GetProfilingContext(),
-                            TraceEvent(TraceEvent::READY_FOR_CLOSE)
-                                .set_node_id(default_context->NodeId()));
+      mediapipe::LogEvent(default_context->GetProfilingContext(),
+                          TraceEvent(TraceEvent::READY_FOR_CLOSE)
+                              .set_node_id(default_context->NodeId()));
       break;
     }
   }
@@ -228,10 +229,38 @@ void InputStreamHandler::FinalizeInputSet(Timestamp timestamp,
   }
 }
 
+// Returns the default CalculatorContext.
+CalculatorContext* GetCalculatorContext(CalculatorContextManager* manager) {
+  return (manager && manager->HasDefaultCalculatorContext())
+             ? manager->GetDefaultCalculatorContext()
+             : nullptr;
+}
+
+// Logs the current queue size of an input stream.
+void LogQueuedPackets(CalculatorContext* context, InputStreamManager* stream,
+                      Packet queue_tail) {
+  if (context) {
+    TraceEvent event = TraceEvent(TraceEvent::PACKET_QUEUED)
+                           .set_node_id(context->NodeId())
+                           .set_input_ts(queue_tail.Timestamp())
+                           .set_stream_id(&stream->Name())
+                           .set_event_data(stream->QueueSize() + 1);
+    mediapipe::LogEvent(context->GetProfilingContext(),
+                        event.set_packet_ts(queue_tail.Timestamp()));
+    Packet queue_head = stream->QueueHead();
+    if (!queue_head.IsEmpty()) {
+      mediapipe::LogEvent(context->GetProfilingContext(),
+                          event.set_packet_ts(queue_head.Timestamp()));
+    }
+  }
+}
+
 void InputStreamHandler::AddPackets(CollectionItemId id,
                                     const std::list<Packet>& packets) {
+  LogQueuedPackets(GetCalculatorContext(calculator_context_manager_),
+                   input_stream_managers_.Get(id), packets.back());
   bool notify = false;
-  ::mediapipe::Status result =
+  mediapipe::Status result =
       input_stream_managers_.Get(id)->AddPackets(packets, &notify);
   if (!result.ok()) {
     error_callback_(result);
@@ -243,8 +272,10 @@ void InputStreamHandler::AddPackets(CollectionItemId id,
 
 void InputStreamHandler::MovePackets(CollectionItemId id,
                                      std::list<Packet>* packets) {
+  LogQueuedPackets(GetCalculatorContext(calculator_context_manager_),
+                   input_stream_managers_.Get(id), packets->back());
   bool notify = false;
-  ::mediapipe::Status result =
+  mediapipe::Status result =
       input_stream_managers_.Get(id)->MovePackets(packets, &notify);
   if (!result.ok()) {
     error_callback_(result);
@@ -257,7 +288,7 @@ void InputStreamHandler::MovePackets(CollectionItemId id,
 void InputStreamHandler::SetNextTimestampBound(CollectionItemId id,
                                                Timestamp bound) {
   bool notify = false;
-  ::mediapipe::Status result =
+  mediapipe::Status result =
       input_stream_managers_.Get(id)->SetNextTimestampBound(bound, &notify);
   if (!result.ok()) {
     error_callback_(result);
@@ -298,6 +329,96 @@ void InputStreamHandler::SetLatePreparation(bool late_preparation) {
   CHECK(batch_size_ == 1 || !late_preparation_)
       << "Batching cannot be combined with late preparation.";
   late_preparation_ = late_preparation;
+}
+
+SyncSet::SyncSet(InputStreamHandler* input_stream_handler,
+                 std::vector<CollectionItemId> stream_ids)
+    : input_stream_handler_(input_stream_handler),
+      stream_ids_(std::move(stream_ids)) {}
+
+void SyncSet::PrepareForRun() { last_processed_ts_ = Timestamp::Unset(); }
+
+NodeReadiness SyncSet::GetReadiness(Timestamp* min_stream_timestamp) {
+  Timestamp min_bound = Timestamp::Done();
+  Timestamp min_packet = Timestamp::Done();
+  for (CollectionItemId id : stream_ids_) {
+    const auto& stream = input_stream_handler_->input_stream_managers_.Get(id);
+    bool empty;
+    Timestamp stream_timestamp = stream->MinTimestampOrBound(&empty);
+    if (empty) {
+      min_bound = std::min(min_bound, stream_timestamp);
+    } else {
+      min_packet = std::min(min_packet, stream_timestamp);
+    }
+  }
+  *min_stream_timestamp = std::min(min_packet, min_bound);
+  if (*min_stream_timestamp == Timestamp::Done()) {
+    last_processed_ts_ = Timestamp::Done().PreviousAllowedInStream();
+    return NodeReadiness::kReadyForClose;
+  }
+  if (!input_stream_handler_->process_timestamps_) {
+    // Only an input_ts with packets can be processed.
+    // Note that (min_bound - 1) is the highest fully settled timestamp.
+    if (min_bound > min_packet) {
+      last_processed_ts_ = *min_stream_timestamp;
+      return NodeReadiness::kReadyForProcess;
+    }
+  } else {
+    // Any unprocessed input_ts can be processed.
+    // Note that (min_bound - 1) is the highest fully settled timestamp.
+    Timestamp input_timestamp =
+        std::min(min_packet, min_bound.PreviousAllowedInStream());
+    if (input_timestamp >
+        std::max(last_processed_ts_, Timestamp::Unstarted())) {
+      *min_stream_timestamp = input_timestamp;
+      last_processed_ts_ = input_timestamp;
+      return NodeReadiness::kReadyForProcess;
+    }
+  }
+  return NodeReadiness::kNotReady;
+}
+
+Timestamp SyncSet::LastProcessed() const { return last_processed_ts_; }
+
+Timestamp SyncSet::MinPacketTimestamp() const {
+  Timestamp result = Timestamp::Done();
+  for (CollectionItemId id : stream_ids_) {
+    const auto& stream = input_stream_handler_->input_stream_managers_.Get(id);
+    bool empty;
+    Timestamp stream_timestamp = stream->MinTimestampOrBound(&empty);
+    if (!empty) {
+      result = std::min(result, stream_timestamp);
+    }
+  }
+  return result;
+}
+
+void SyncSet::FillInputSet(Timestamp input_timestamp,
+                           InputStreamShardSet* input_set) {
+  CHECK(input_timestamp.IsAllowedInStream());
+  CHECK(input_set);
+  for (CollectionItemId id : stream_ids_) {
+    const auto& stream = input_stream_handler_->input_stream_managers_.Get(id);
+    int num_packets_dropped = 0;
+    bool stream_is_done = false;
+    Packet current_packet = stream->PopPacketAtTimestamp(
+        input_timestamp, &num_packets_dropped, &stream_is_done);
+    CHECK_EQ(num_packets_dropped, 0)
+        << absl::Substitute("Dropped $0 packet(s) on input stream \"$1\".",
+                            num_packets_dropped, stream->Name());
+    input_stream_handler_->AddPacketToShard(
+        &input_set->Get(id), std::move(current_packet), stream_is_done);
+  }
+}
+
+void SyncSet::FillInputBounds(InputStreamShardSet* input_set) {
+  for (CollectionItemId id : stream_ids_) {
+    const auto* stream = input_stream_handler_->input_stream_managers_.Get(id);
+    Timestamp bound = stream->MinTimestampOrBound(nullptr);
+    input_stream_handler_->AddPacketToShard(
+        &input_set->Get(id), Packet().At(bound.PreviousAllowedInStream()),
+        bound == Timestamp::Done());
+  }
 }
 
 }  // namespace mediapipe

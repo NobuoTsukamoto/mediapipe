@@ -49,13 +49,13 @@ const char kSequenceExampleTag[] = "SEQUENCE_EXAMPLE";
 // }
 class TFRecordReaderCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static mediapipe::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
 };
 
-::mediapipe::Status TFRecordReaderCalculator::GetContract(
+mediapipe::Status TFRecordReaderCalculator::GetContract(
     CalculatorContract* cc) {
   cc->InputSidePackets().Tag(kTFRecordPath).Set<std::string>();
   if (cc->InputSidePackets().HasTag(kRecordIndex)) {
@@ -73,15 +73,15 @@ class TFRecordReaderCalculator : public CalculatorBase {
         .Tag(kSequenceExampleTag)
         .Set<tensorflow::SequenceExample>();
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TFRecordReaderCalculator::Open(CalculatorContext* cc) {
+mediapipe::Status TFRecordReaderCalculator::Open(CalculatorContext* cc) {
   std::unique_ptr<tensorflow::RandomAccessFile> file;
   auto tf_status = tensorflow::Env::Default()->NewRandomAccessFile(
       cc->InputSidePackets().Tag(kTFRecordPath).Get<std::string>(), &file);
   RET_CHECK(tf_status.ok())
-      << "Failed to open tfrecord file: " << tf_status.error_message();
+      << "Failed to open tfrecord file: " << tf_status.ToString();
   tensorflow::io::RecordReader reader(file.get(),
                                       tensorflow::io::RecordReaderOptions());
   tensorflow::uint64 offset = 0;
@@ -94,7 +94,7 @@ class TFRecordReaderCalculator : public CalculatorBase {
   while (current_idx <= target_idx) {
     tf_status = reader.ReadRecord(&offset, &example_str);
     RET_CHECK(tf_status.ok())
-        << "Failed to read tfrecord: " << tf_status.error_message();
+        << "Failed to read tfrecord: " << tf_status.ToString();
     if (current_idx == target_idx) {
       if (cc->OutputSidePackets().HasTag(kExampleTag)) {
         tensorflow::Example tf_example;
@@ -114,11 +114,11 @@ class TFRecordReaderCalculator : public CalculatorBase {
     ++current_idx;
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TFRecordReaderCalculator::Process(CalculatorContext* cc) {
-  return ::mediapipe::OkStatus();
+mediapipe::Status TFRecordReaderCalculator::Process(CalculatorContext* cc) {
+  return mediapipe::OkStatus();
 }
 
 REGISTER_CALCULATOR(TFRecordReaderCalculator);

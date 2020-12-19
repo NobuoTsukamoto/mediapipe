@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 # MediaPipe Android framework.
 
-exports_files(["proguard.pgcfg"])
+exports_files([
+    "proguard.pgcfg",
+    "proguard_allowobfuscation.pgcfg",
+])
 
 android_library(
     name = "android_framework",
-    proguard_specs = [
-        ":proguard.pgcfg",
-    ],
+    proguard_specs = [":proguard.pgcfg"],
     visibility = ["//visibility:public"],
     exports = [
         ":android_core",
@@ -33,6 +34,14 @@ android_library(
 # TODO: Rename android_framework_no_mff.
 android_library(
     name = "android_framework_no_mff",
+    proguard_specs = [":proguard.pgcfg"],
+    exports = [
+        ":android_framework_no_proguard",
+    ],
+)
+
+android_library(
+    name = "android_framework_no_proguard",
     srcs = glob(
         ["Android*.java"],
     ) + [
@@ -40,8 +49,8 @@ android_library(
         "AssetCacheDbHelper.java",
         "MediaPipeRunner.java",
     ],
-    proguard_specs = [
-        ":proguard.pgcfg",
+    visibility = [
+        "//mediapipe/java/com/google/mediapipe:__subpackages__",
     ],
     exports = [
         ":android_core",
@@ -50,10 +59,10 @@ android_library(
         ":android_core",
         "//third_party:androidx_annotation",
         "//third_party:androidx_legacy_support_v4",
-        "@com_google_code_findbugs//jar",
-        "@com_google_common_flogger//jar",
-        "@com_google_common_flogger_system_backend//jar",
-        "@com_google_guava_android//jar",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_flogger_flogger",
+        "@maven//:com_google_flogger_flogger_system_backend",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -70,22 +79,66 @@ android_library(
             "AssetCache.java",
             "AssetCacheDbHelper.java",
             "MediaPipeRunner.java",
+            "ProtoUtil.java",
+            "TypeNameRegistry.java",
+            "TypeNameRegistryLite.java",
+            "TypeNameRegistryFull.java",
+            "MediaPipeException.java",
         ],
     ),
+    exports = [
+        ":framework_proto_lite",
+        ":mediapipe_exception_android",
+    ],
     deps = [
+        ":framework_proto_lite",
+        ":mediapipe_exception_android",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_flogger_flogger",
+        "@maven//:com_google_flogger_flogger_system_backend",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+android_library(
+    name = "framework_proto_lite",
+    srcs = [
+        "ProtoUtil.java",
+        "TypeNameRegistry.java",
+        "TypeNameRegistryLite.java",
+    ],
+    exports = [
         "//mediapipe/framework:calculator_java_proto_lite",
         "//mediapipe/framework:calculator_profile_java_proto_lite",
+        "//mediapipe/framework:stream_handler_java_proto_lite",
         "//mediapipe/framework/tool:calculator_graph_template_java_proto_lite",
-        "@com_google_code_findbugs//jar",
-        "@com_google_common_flogger//jar",
-        "@com_google_common_flogger_system_backend//jar",
-        "@com_google_guava_android//jar",
+    ],
+    deps = [
+        ":mediapipe_exception_android",
+        "//mediapipe/framework:calculator_java_proto_lite",
+        "//mediapipe/framework:calculator_profile_java_proto_lite",
+        "//mediapipe/framework:stream_handler_java_proto_lite",
+        "//mediapipe/framework/tool:calculator_graph_template_java_proto_lite",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+android_library(
+    name = "mediapipe_exception_android",
+    srcs = [
+        "MediaPipeException.java",
+    ],
+    deps = [
+        "@maven//:com_google_guava_guava",
     ],
 )
 
 # Expose the java source files for building mediapipe AAR.
 filegroup(
     name = "java_src",
-    srcs = glob(["*.java"]),
+    srcs = glob(
+        ["*.java"],
+        exclude = ["TypeNameRegistryFull.java"],
+    ),
     visibility = ["//mediapipe:__subpackages__"],
 )

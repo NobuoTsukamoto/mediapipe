@@ -26,6 +26,7 @@
 #include "mediapipe/gpu/MPPGraphGPUData.h"
 #include "mediapipe/gpu/gl_base.h"
 #include "mediapipe/gpu/gpu_shared_data_internal.h"
+#include "mediapipe/objc/util.h"
 
 #import "mediapipe/objc/NSError+util_status.h"
 #import "GTMDefines.h"
@@ -110,20 +111,17 @@ void CallFrameDelegate(void* wrapperVoid, const std::string& streamName,
                      didOutputPacket:packet
                           fromStream:streamName];
     } else if (packetType == MPPPacketTypeImageFrame) {
+      wrapper->_framesInFlight--;
       const auto& frame = packet.Get<mediapipe::ImageFrame>();
       mediapipe::ImageFormat::Format format = frame.Format();
 
       if (format == mediapipe::ImageFormat::SRGBA ||
           format == mediapipe::ImageFormat::GRAY8) {
         CVPixelBufferRef pixelBuffer;
-        // To ensure compatibility with CVOpenGLESTextureCache, this attribute should be present.
-        NSDictionary* attributes = @{
-          (id)kCVPixelBufferIOSurfacePropertiesKey : @{},
-        };
         // If kCVPixelFormatType_32RGBA does not work, it returns kCVReturnInvalidPixelFormat.
         CVReturn error = CVPixelBufferCreate(
             NULL, frame.Width(), frame.Height(), kCVPixelFormatType_32BGRA,
-            (__bridge CFDictionaryRef)attributes, &pixelBuffer);
+            GetCVPixelBufferAttributesForGlCompatibility(), &pixelBuffer);
         _GTMDevAssert(error == kCVReturnSuccess, @"CVPixelBufferCreate failed: %d", error);
         error = CVPixelBufferLockBaseAddress(pixelBuffer, 0);
         _GTMDevAssert(error == kCVReturnSuccess, @"CVPixelBufferLockBaseAddress failed: %d", error);
@@ -166,6 +164,7 @@ void CallFrameDelegate(void* wrapperVoid, const std::string& streamName,
       }
 #if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
     } else if (packetType == MPPPacketTypePixelBuffer) {
+      wrapper->_framesInFlight--;
       CVPixelBufferRef pixelBuffer = packet.Get<mediapipe::GpuBuffer>().GetCVPixelBufferRef();
       if ([wrapper.delegate
               respondsToSelector:@selector
@@ -185,8 +184,6 @@ void CallFrameDelegate(void* wrapperVoid, const std::string& streamName,
     } else {
       _GTMDevLog(@"unsupported packet type");
     }
-
-    wrapper->_framesInFlight--;
   }
 }
 
@@ -330,22 +327,35 @@ void CallFrameDelegate(void* wrapperVoid, const std::string& streamName,
              packetType:(MPPPacketType)packetType
               timestamp:(const mediapipe::Timestamp&)timestamp
          allowOverwrite:(BOOL)allowOverwrite {
+  NSError* error;
+  bool success = [self sendPixelBuffer:imageBuffer
+                            intoStream:inputName
+                            packetType:packetType
+                             timestamp:timestamp
+                        allowOverwrite:allowOverwrite
+                                 error:&error];
+  if (error) {
+    _GTMDevLog(@"failed to send packet: %@", error);
+  }
+  return success;
+}
+
+- (BOOL)sendPixelBuffer:(CVPixelBufferRef)imageBuffer
+             intoStream:(const std::string&)inputName
+             packetType:(MPPPacketType)packetType
+              timestamp:(const mediapipe::Timestamp&)timestamp
+         allowOverwrite:(BOOL)allowOverwrite
+                  error:(NSError**)error {
   if (_maxFramesInFlight && _framesInFlight >= _maxFramesInFlight) return NO;
   mediapipe::Packet packet = [self packetWithPixelBuffer:imageBuffer packetType:packetType];
-  NSError* error;
   BOOL success;
   if (allowOverwrite) {
     packet = std::move(packet).At(timestamp);
-    success = [self movePacket:std::move(packet)
-                    intoStream:inputName
-                         error:&error];
+    success = [self movePacket:std::move(packet) intoStream:inputName error:error];
   } else {
-    success = [self sendPacket:packet.At(timestamp)
-                    intoStream:inputName
-                         error:&error];
+    success = [self sendPacket:packet.At(timestamp) intoStream:inputName error:error];
   }
   if (success) _framesInFlight++;
-  else _GTMDevLog(@"failed to send packet: %@", error);
   return success;
 }
 

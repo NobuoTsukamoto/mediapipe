@@ -46,8 +46,54 @@
 // but may or may not still be able to run other OpenGL code.
 #if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE) &&         \
     (defined(__APPLE__) || defined(__EMSCRIPTEN__) || \
-     defined(MEDIAPIPE_DISABLE_GPU))
+     defined(MEDIAPIPE_DISABLE_GPU) || MEDIAPIPE_USING_SWIFTSHADER)
 #define MEDIAPIPE_DISABLE_GL_COMPUTE
 #endif
+
+// Compile time target platform definitions.
+// Example: #if MEDIAPIPE_OPENGL_ES_VERSION >= MEDIAPIPE_OPENGL_ES_31
+#define MEDIAPIPE_OPENGL_ES_20 200
+#define MEDIAPIPE_OPENGL_ES_30 300
+#define MEDIAPIPE_OPENGL_ES_31 310
+
+#if defined(MEDIAPIPE_DISABLE_GPU)
+#define MEDIAPIPE_OPENGL_ES_VERSION 0
+#define MEDIAPIPE_METAL_ENABLED 0
+#else
+#if defined(MEDIAPIPE_ANDROID)
+#if defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#define MEDIAPIPE_OPENGL_ES_VERSION MEDIAPIPE_OPENGL_ES_20
+#else
+#define MEDIAPIPE_OPENGL_ES_VERSION MEDIAPIPE_OPENGL_ES_31
+#endif
+#define MEDIAPIPE_METAL_ENABLED 0
+#elif defined(MEDIAPIPE_IOS)
+#define MEDIAPIPE_OPENGL_ES_VERSION MEDIAPIPE_OPENGL_ES_20
+#define MEDIAPIPE_METAL_ENABLED 1
+#elif defined(MEDIAPIPE_OSX)
+#define MEDIAPIPE_OPENGL_ES_VERSION 0
+#define MEDIAPIPE_METAL_ENABLED 1
+#elif defined(__EMSCRIPTEN__)
+// WebGL config.
+#define MEDIAPIPE_OPENGL_ES_VERSION MEDIAPIPE_OPENGL_ES_30
+#define MEDIAPIPE_METAL_ENABLED 0
+#else
+#define MEDIAPIPE_OPENGL_ES_VERSION MEDIAPIPE_OPENGL_ES_31
+#define MEDIAPIPE_METAL_ENABLED 0
+#endif
+#endif
+
+#ifndef MEDIAPIPE_HAS_RTTI
+// Detect if RTTI is disabled in the compiler.
+#if defined(__clang__) && defined(__has_feature)
+#define MEDIAPIPE_HAS_RTTI __has_feature(cxx_rtti)
+#elif defined(__GNUC__) && !defined(__GXX_RTTI)
+#define MEDIAPIPE_HAS_RTTI 0
+#elif defined(_MSC_VER) && !defined(_CPPRTTI)
+#define MEDIAPIPE_HAS_RTTI 0
+#else
+#define MEDIAPIPE_HAS_RTTI 1
+#endif
+#endif  // MEDIAPIPE_HAS_RTTI
 
 #endif  // MEDIAPIPE_FRAMEWORK_PORT_H_

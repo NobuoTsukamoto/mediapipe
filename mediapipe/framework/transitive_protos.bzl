@@ -1,3 +1,17 @@
+# Copyright 2019-2020 The MediaPipe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Extract a cc_library compatible dependency with only the top level proto rules."""
 
 ProtoLibsInfo = provider(fields = ["targets", "out"])
@@ -5,20 +19,21 @@ ProtoLibsInfo = provider(fields = ["targets", "out"])
 def _get_proto_rules(deps, proto_rules = None):
     useful_deps = [dep for dep in deps if hasattr(dep, "proto_rules")]
     if proto_rules == None:
-        proto_rules = []
-    for dep in useful_deps:
-        proto_rules = proto_rules + dep.proto_rules
+        proto_rules = depset()
+    proto_rules = depset(
+        transitive = [proto_rules] + [dep.proto_rules for dep in useful_deps],
+    )
     return proto_rules
 
 def _proto_rules_aspect_impl(target, ctx):
     # Make sure the rule has a srcs attribute.
-    proto_rules = []
+    proto_rules = depset()
     found_cc_proto = False
     if hasattr(ctx.rule.attr, "srcs") and len(ctx.rule.attr.srcs) == 1:
         for f in ctx.rule.attr.srcs[0].files.to_list():
             if f.basename.endswith(".pb.cc"):
-                proto_rules = [target[CcInfo]]
-                found = True
+                proto_rules = depset([target[CcInfo]])
+                found_cc_proto = True
                 break
 
     if not found_cc_proto:
@@ -43,10 +58,10 @@ def _transitive_protos_impl(ctx):
       A proto provider (with transitive_sources and transitive_descriptor_sets filled in),
       and marks all transitive sources as default output.
     """
-    cc_infos = []
+    cc_info_sets = []
     for dep in ctx.attr.deps:
-        for dep_proto_rule in dep.proto_rules:
-            cc_infos.append(dep_proto_rule)
+        cc_info_sets.append(dep.proto_rules)
+    cc_infos = depset(transitive = cc_info_sets).to_list()
     return [cc_common.merge_cc_infos(cc_infos = cc_infos)]
 
 transitive_protos = rule(

@@ -16,9 +16,7 @@
 # Description:
 #   Working with dense optical flow in mediapipe.
 
-licenses(["notice"])  # Apache 2.0
-
-exports_files(["LICENSE"])
+licenses(["notice"])
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library")
 

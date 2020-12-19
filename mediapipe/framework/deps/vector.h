@@ -313,9 +313,9 @@ VT2<T2> operator/(const K& k, const BasicVector<VT2, T2, N2>& a) {
 // ======================================================================
 template <typename T>
 class Vector2
-    : public ::mediapipe::deps::internal_vector::BasicVector<Vector2, T, 2> {
+    : public mediapipe::deps::internal_vector::BasicVector<Vector2, T, 2> {
  private:
-  using Base = ::mediapipe::deps::internal_vector::BasicVector<::Vector2, T, 2>;
+  using Base = mediapipe::deps::internal_vector::BasicVector<::Vector2, T, 2>;
   using VType = T;
 
  public:
@@ -383,9 +383,9 @@ class Vector2
 
 template <typename T>
 class Vector3
-    : public ::mediapipe::deps::internal_vector::BasicVector<Vector3, T, 3> {
+    : public mediapipe::deps::internal_vector::BasicVector<Vector3, T, 3> {
  private:
-  using Base = ::mediapipe::deps::internal_vector::BasicVector<::Vector3, T, 3>;
+  using Base = mediapipe::deps::internal_vector::BasicVector<::Vector3, T, 3>;
   using VType = T;
 
  public:
@@ -458,8 +458,9 @@ class Vector3
   // return the index of the largest component (fabs)
   int LargestAbsComponent() const {
     Vector3 temp = Abs();
-    return temp[0] > temp[1] ? temp[0] > temp[2] ? 0 : 2
-                             : temp[1] > temp[2] ? 1 : 2;
+    return temp[0] > temp[1]   ? temp[0] > temp[2] ? 0 : 2
+           : temp[1] > temp[2] ? 1
+                               : 2;
   }
 
   // return the index of the smallest, median ,largest component of the vector
@@ -478,9 +479,9 @@ class Vector3
 
 template <typename T>
 class Vector4
-    : public ::mediapipe::deps::internal_vector::BasicVector<Vector4, T, 4> {
+    : public mediapipe::deps::internal_vector::BasicVector<Vector4, T, 4> {
  private:
-  using Base = ::mediapipe::deps::internal_vector::BasicVector<::Vector4, T, 4>;
+  using Base = mediapipe::deps::internal_vector::BasicVector<::Vector4, T, 4>;
   using VType = T;
 
  public:

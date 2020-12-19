@@ -117,6 +117,7 @@ void* GlContext::DedicatedThread::ThreadBody(void* instance) {
 
 void GlContext::DedicatedThread::ThreadBody() {
   SetThreadName("mediapipe_gl_runner");
+
 #ifndef __EMSCRIPTEN__
   GlThreadCollector::ThreadStarting();
 #endif
@@ -203,6 +204,69 @@ bool GlContext::ParseGlVersion(absl::string_view version_string, GLint* major,
   return true;
 }
 
+bool GlContext::HasGlExtension(absl::string_view extension) const {
+  return gl_extensions_.find(extension) != gl_extensions_.end();
+}
+
+// Function for GL3.0+ to query for and store all of our available GL extensions
+// in an easily-accessible set.  The glGetString call is actually *not* required
+// to work with GL_EXTENSIONS for newer GL versions, so we must maintain both
+// variations of this function.
+::mediapipe::Status GlContext::GetGlExtensions() {
+  gl_extensions_.clear();
+  // glGetStringi only introduced in GL 3.0+; so we exit out this function if
+  // we don't have that function defined, regardless of version number reported.
+  // The function itself is also fully stubbed out if we're linking against an
+  // API version without a glGetStringi declaration. Although Emscripten
+  // sometimes provides this function, its default library implementation
+  // appears to only provide glGetString, so we skip this for Emscripten
+  // platforms to avoid possible undefined symbol or runtime errors.
+#if (GL_VERSION_3_0 || GL_ES_VERSION_3_0) && !defined(__EMSCRIPTEN__)
+  if (!SymbolAvailable(&glGetStringi)) {
+    LOG(ERROR) << "GL major version > 3.0 indicated, but glGetStringi not "
+               << "defined. Falling back to deprecated GL extensions querying "
+               << "method.";
+    return ::mediapipe::InternalError("glGetStringi not defined, but queried");
+  }
+  int num_extensions = 0;
+  glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
+  if (glGetError() != 0) {
+    return ::mediapipe::InternalError(
+        "Error querying for number of extensions");
+  }
+
+  for (int i = 0; i < num_extensions; ++i) {
+    const GLubyte* res = glGetStringi(GL_EXTENSIONS, i);
+    if (glGetError() != 0 || res == nullptr) {
+      return ::mediapipe::InternalError(
+          "Error querying for an extension by index");
+    }
+    const char* signed_res = reinterpret_cast<const char*>(res);
+    gl_extensions_.insert(signed_res);
+  }
+
+  return ::mediapipe::OkStatus();
+#else
+  return ::mediapipe::InternalError("GL version mismatch in GlGetExtensions");
+#endif  // (GL_VERSION_3_0 || GL_ES_VERSION_3_0) && !defined(__EMSCRIPTEN__)
+}
+
+// Same as GetGlExtensions() above, but for pre-GL3.0, where glGetStringi did
+// not exist.
+::mediapipe::Status GlContext::GetGlExtensionsCompat() {
+  gl_extensions_.clear();
+
+  const GLubyte* res = glGetString(GL_EXTENSIONS);
+  if (glGetError() != 0 || res == nullptr) {
+    LOG(ERROR) << "Error querying for GL extensions";
+    return ::mediapipe::InternalError("Error querying for GL extensions");
+  }
+  const char* signed_res = reinterpret_cast<const char*>(res);
+  gl_extensions_ = absl::StrSplit(signed_res, ' ');
+
+  return ::mediapipe::OkStatus();
+}
+
 ::mediapipe::Status GlContext::FinishInitialization(bool create_thread) {
   if (create_thread) {
     thread_ = absl::make_unique<GlContext::DedicatedThread>();
@@ -210,8 +274,18 @@ bool GlContext::ParseGlVersion(absl::string_view version_string, GLint* major,
   }
 
   return Run([this]() -> ::mediapipe::Status {
+    // Clear any GL errors at this point: as this is a fresh context
+    // there shouldn't be any, but if we adopted an existing context (e.g. in
+    // some Emscripten cases), there might be some existing tripped error.
+    ForceClearExistingGlErrors();
+
     absl::string_view version_string(
         reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+
+    // We will decide later whether we want to use the version numbers we query
+    // for, or instead derive that information from the context creation result,
+    // which we cache here.
+    GLint gl_major_version_from_context_creation = gl_major_version_;
 
     // Let's try getting the numeric version if possible.
     glGetIntegerv(GL_MAJOR_VERSION, &gl_major_version_);
@@ -230,10 +304,32 @@ bool GlContext::ParseGlVersion(absl::string_view version_string, GLint* major,
       }
     }
 
+    // If our platform-specific CreateContext already set a major GL version,
+    // then we use that.  Otherwise, we use the queried-for result. We do this
+    // as a workaround for a Swiftshader on Android bug where the ES2 context
+    // can report major version 3 instead of 2 when queried. Therefore we trust
+    // the result from context creation more than from query. See b/152519932
+    // for more details.
+    if (gl_major_version_from_context_creation > 0 &&
+        gl_major_version_ != gl_major_version_from_context_creation) {
+      LOG(WARNING) << "Requested a context with major GL version "
+                   << gl_major_version_from_context_creation
+                   << " but context reports major version " << gl_major_version_
+                   << ". Setting to " << gl_major_version_from_context_creation
+                   << ".0";
+      gl_major_version_ = gl_major_version_from_context_creation;
+      gl_minor_version_ = 0;
+    }
+
     LOG(INFO) << "GL version: " << gl_major_version_ << "." << gl_minor_version_
               << " (" << glGetString(GL_VERSION) << ")";
-
-    return ::mediapipe::OkStatus();
+    if (gl_major_version_ >= 3) {
+      auto status = GetGlExtensions();
+      if (status.ok()) {
+        return ::mediapipe::OkStatus();
+      }
+    }
+    return GetGlExtensionsCompat();
   });
 }
 
@@ -247,6 +343,7 @@ GlContext::~GlContext() {
 #error This file must be built with ARC.
 #endif
 #endif  // __OBJC__
+
   if (thread_) {
     auto status = thread_->Run([this] {
       if (profiling_helper_) {
@@ -254,9 +351,8 @@ GlContext::~GlContext() {
       }
       return ExitContext(nullptr);
     });
-    if (!status.ok()) {
-      LOG(ERROR) << "Failed to deactivate context on thread: " << status;
-    }
+    LOG_IF(ERROR, !status.ok())
+        << "Failed to deactivate context on thread: " << status;
     if (thread_->IsCurrentThread()) {
       thread_.release()->SelfDestruct();
     }
@@ -272,40 +368,38 @@ void GlContext::SetProfilingContext(
   }
 }
 
+::mediapipe::Status GlContext::SwitchContextAndRun(GlStatusFunction gl_func) {
+  ContextBinding saved_context;
+  MP_RETURN_IF_ERROR(EnterContext(&saved_context)) << " (entering GL context)";
+  auto status = gl_func();
+  LogUncheckedGlErrors(CheckForGlErrors());
+  MP_RETURN_IF_ERROR(ExitContext(&saved_context)) << " (exiting GL context)";
+  return status;
+}
+
 ::mediapipe::Status GlContext::Run(GlStatusFunction gl_func, int node_id,
                                    Timestamp input_timestamp) {
   ::mediapipe::Status status;
-  if (thread_) {
-    bool had_gl_errors = false;
-    status = thread_->Run(
-        [this, gl_func, node_id, &input_timestamp, &had_gl_errors] {
-          if (profiling_helper_) {
-            profiling_helper_->MarkTimestamp(node_id, input_timestamp,
-                                             /*is_finish=*/false);
-          }
-          auto status = gl_func();
-          if (profiling_helper_) {
-            profiling_helper_->MarkTimestamp(node_id, input_timestamp,
-                                             /*is_finish=*/true);
-          }
-          had_gl_errors = CheckForGlErrors();
-          return status;
-        });
-    LogUncheckedGlErrors(had_gl_errors);
-  } else {
-    ContextBinding saved_context;
-    MP_RETURN_IF_ERROR(EnterContext(&saved_context));
-    if (profiling_helper_) {
+  if (profiling_helper_) {
+    gl_func = [=] {
       profiling_helper_->MarkTimestamp(node_id, input_timestamp,
                                        /*is_finish=*/false);
-    }
-    status = gl_func();
-    if (profiling_helper_) {
+      auto status = gl_func();
       profiling_helper_->MarkTimestamp(node_id, input_timestamp,
                                        /*is_finish=*/true);
-    }
-    LogUncheckedGlErrors(CheckForGlErrors());
-    MP_RETURN_IF_ERROR(ExitContext(&saved_context));
+      return status;
+    };
+  }
+  if (thread_) {
+    bool had_gl_errors = false;
+    status = thread_->Run([this, gl_func, &had_gl_errors] {
+      auto status = gl_func();
+      had_gl_errors = CheckForGlErrors();
+      return status;
+    });
+    LogUncheckedGlErrors(had_gl_errors);
+  } else {
+    status = SwitchContextAndRun(gl_func);
   }
   return status;
 }
@@ -320,17 +414,12 @@ void GlContext::RunWithoutWaiting(GlVoidFunction gl_func) {
     });
   } else {
     // TODO: queue up task instead.
-    ContextBinding saved_context;
-    auto status = EnterContext(&saved_context);
+    auto status = SwitchContextAndRun([gl_func] {
+      gl_func();
+      return ::mediapipe::OkStatus();
+    });
     if (!status.ok()) {
-      LOG(ERROR) << "Failed to enter context: " << status;
-      return;
-    }
-    gl_func();
-    LogUncheckedGlErrors(CheckForGlErrors());
-    status = ExitContext(&saved_context);
-    if (!status.ok()) {
-      LOG(ERROR) << "Failed to exit context: " << status;
+      LOG(ERROR) << "Error in RunWithoutWaiting: " << status;
     }
   }
 }
@@ -346,7 +435,7 @@ std::weak_ptr<GlContext>& GlContext::CurrentContext() {
 
 ::mediapipe::Status GlContext::SwitchContext(ContextBinding* saved_context,
                                              const ContextBinding& new_context)
-    NO_THREAD_SAFETY_ANALYSIS {
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
   std::shared_ptr<GlContext> old_context_obj = CurrentContext().lock();
   std::shared_ptr<GlContext> new_context_obj =
       new_context.context_object.lock();
@@ -493,7 +582,7 @@ class GlFenceSyncPoint : public GlSyncPoint {
 
 void GlMultiSyncPoint::Add(std::shared_ptr<GlSyncPoint> new_sync) {
   for (auto& sync : syncs_) {
-    if (&sync->GetContext() == &new_sync->GetContext()) {
+    if (sync->GetContext() == new_sync->GetContext()) {
       sync = std::move(new_sync);
       return;
     }
@@ -545,7 +634,17 @@ std::shared_ptr<GlSyncPoint> GlContext::CreateSyncToken() {
 #if MEDIAPIPE_DISABLE_GL_SYNC_FOR_DEBUG
   token.reset(new GlNopSyncPoint(shared_from_this()));
 #else
-  if (SymbolAvailable(&glWaitSync)) {
+
+#ifdef __EMSCRIPTEN__
+  // In Emscripten the glWaitSync function is non-null depending on linkopts,
+  // but only works in a WebGL2 context, so fall back to use Finish if it is a
+  // WebGL1/ES2 context.
+  // TODO: apply this more generally once b/152794517 is fixed.
+  bool useFenceSync = gl_major_version() > 2;
+#else
+  bool useFenceSync = SymbolAvailable(&glWaitSync);
+#endif  // __EMSCRIPTEN__
+  if (useFenceSync) {
     token.reset(new GlFenceSyncPoint(shared_from_this()));
   } else {
     token.reset(new GlFinishSyncPoint(shared_from_this()));
@@ -565,8 +664,30 @@ std::shared_ptr<GlSyncPoint> GlContext::TestOnly_CreateSpecificSyncToken(
   return nullptr;
 }
 
+// Atomically set var to the greater of its current value or target.
+template <typename T>
+static void assign_larger_value(std::atomic<T>* var, T target) {
+  T current = var->load();
+  while (current < target && !var->compare_exchange_weak(current, target)) {
+  }
+}
+
+// Note: this can get called from an arbitrary thread which is dealing with a
+// GlFinishSyncPoint originating from this context.
 void GlContext::WaitForGlFinishCountPast(int64_t count_to_pass) {
   if (gl_finish_count_ > count_to_pass) return;
+
+  // If we've been asked to do a glFinish, note the count we need to reach and
+  // signal the context our thread may currently be blocked on.
+  {
+    absl::MutexLock lock(&mutex_);
+    assign_larger_value(&gl_finish_count_target_, count_to_pass + 1);
+    wait_for_gl_finish_cv_.SignalAll();
+    if (context_waiting_on_) {
+      context_waiting_on_->wait_for_gl_finish_cv_.SignalAll();
+    }
+  }
+
   auto finish_task = [this, count_to_pass]() {
     // When a GlFinishSyncToken is created it takes the current finish count
     // from the GlContext, and we must wait for gl_finish_count_ to pass it.
@@ -578,6 +699,7 @@ void GlContext::WaitForGlFinishCountPast(int64_t count_to_pass) {
       GlFinishCalled();
     }
   };
+
   if (IsCurrent()) {
     // If we are already on the current context, we cannot call
     // RunWithoutWaiting, since that task will not run until this function
@@ -585,13 +707,53 @@ void GlContext::WaitForGlFinishCountPast(int64_t count_to_pass) {
     finish_task();
     return;
   }
+
+  std::shared_ptr<GlContext> other = GetCurrent();
+  if (other) {
+    // If another context is current, make a note that it is blocked on us, so
+    // it can signal the right condition variable if it is asked to do a
+    // glFinish.
+    absl::MutexLock other_lock(&other->mutex_);
+    DCHECK(!other->context_waiting_on_);
+    other->context_waiting_on_ = this;
+  }
   // We do not schedule this action using Run because we don't necessarily
   // want to wait for it to complete. If another job calls GlFinishCalled
   // sooner, we are done.
   RunWithoutWaiting(std::move(finish_task));
-  absl::MutexLock lock(&mutex_);
-  while (gl_finish_count_ <= count_to_pass) {
-    wait_for_gl_finish_cv_.Wait(&mutex_);
+  {
+    absl::MutexLock lock(&mutex_);
+    while (gl_finish_count_ <= count_to_pass) {
+      if (other && other->gl_finish_count_ < other->gl_finish_count_target_) {
+        // If another context's dedicated thread is current, it is blocked
+        // waiting for this context to issue a glFinish call. But this context
+        // may also block waiting for the other context to do the same: this can
+        // happen when two contexts are handling each other's GlFinishSyncPoints
+        // (e.g. a producer and a consumer). To avoid a deadlock a context that
+        // is waiting on another context must still service Wait calls it may
+        // receive from its own GlFinishSyncPoints.
+        //
+        // We unlock this context's mutex to avoid holding both at the same
+        // time.
+        mutex_.Unlock();
+        {
+          glFinish();
+          other->GlFinishCalled();
+        }
+        mutex_.Lock();
+        // Because we temporarily unlocked mutex_, we cannot wait on the
+        // condition variable wait away; we need to go back to re-checking the
+        // condition. Otherwise we might miss a signal.
+        continue;
+      }
+      wait_for_gl_finish_cv_.Wait(&mutex_);
+    }
+  }
+
+  if (other) {
+    // The other context is no longer waiting on us.
+    absl::MutexLock other_lock(&other->mutex_);
+    other->context_waiting_on_ = nullptr;
   }
 }
 
@@ -605,10 +767,18 @@ bool GlContext::SyncTokenIsReady(const std::shared_ptr<GlSyncPoint>& token) {
   return token->IsReady();
 }
 
-bool GlContext::CheckForGlErrors() {
+void GlContext::ForceClearExistingGlErrors() {
+  LogUncheckedGlErrors(CheckForGlErrors(/*force=*/true));
+}
+
+bool GlContext::CheckForGlErrors() { return CheckForGlErrors(false); }
+
+bool GlContext::CheckForGlErrors(bool force) {
 #if UNSAFE_EMSCRIPTEN_SKIP_GL_ERROR_HANDLING
-  LOG_FIRST_N(WARNING, 1) << "MediaPipe OpenGL error checking is disabled";
-  return false;
+  if (!force) {
+    LOG_FIRST_N(WARNING, 1) << "MediaPipe OpenGL error checking is disabled";
+    return false;
+  }
 #endif
 
   if (!HasContext()) return false;

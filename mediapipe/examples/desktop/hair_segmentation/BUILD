@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//mediapipe/examples:__subpackages__"])
 
@@ -23,4 +23,18 @@ cc_binary(
         "//mediapipe/examples/desktop:demo_run_graph_main_gpu",
         "//mediapipe/graphs/hair_segmentation:mobile_calculators",
     ],
+)
+
+cc_binary(
+    name = "hair_segmentation_cpu",
+    deps = [
+        "//mediapipe/examples/desktop:demo_run_graph_main",
+    ] + select({
+        "//mediapipe/gpu:disable_gpu": [
+            "//mediapipe/graphs/hair_segmentation:desktop_calculators",
+        ],
+        "//conditions:default": [
+            "//mediapipe/graphs/hair_segmentation:mobile_calculators",
+        ],
+    }),
 )

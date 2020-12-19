@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <vector>
+
 #include "absl/strings/match.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/singleton.h"
@@ -22,14 +24,13 @@
 namespace mediapipe {
 
 namespace {
-::mediapipe::StatusOr<std::string> PathToResourceAsFileInternal(
+mediapipe::StatusOr<std::string> PathToResourceAsFileInternal(
     const std::string& path) {
   return Singleton<AssetManager>::get()->CachedFileFromAsset(path);
 }
 }  // namespace
 
-::mediapipe::StatusOr<std::string> PathToResourceAsFile(
-    const std::string& path) {
+mediapipe::StatusOr<std::string> PathToResourceAsFile(const std::string& path) {
   // Return full path.
   if (absl::StartsWith(path, "/")) {
     return path;
@@ -55,17 +56,26 @@ namespace {
   }
 }
 
-::mediapipe::Status GetResourceContents(const std::string& path,
-                                        std::string* output) {
+mediapipe::Status GetResourceContents(const std::string& path,
+                                      std::string* output,
+                                      bool read_as_binary) {
+  if (!read_as_binary) {
+    LOG(WARNING)
+        << "Setting \"read_as_binary\" to false is a no-op on Android.";
+  }
   if (absl::StartsWith(path, "/")) {
     return file::GetContents(path, output, file::Defaults());
   }
 
-  std::vector<uint8_t> data;
-  RET_CHECK(Singleton<AssetManager>::get()->ReadFile(path, &data))
+  if (absl::StartsWith(path, "content://")) {
+    MP_RETURN_IF_ERROR(
+        Singleton<AssetManager>::get()->ReadContentUri(path, output));
+    return mediapipe::OkStatus();
+  }
+
+  RET_CHECK(Singleton<AssetManager>::get()->ReadFile(path, output))
       << "could not read asset: " << path;
-  output->assign(reinterpret_cast<char*>(data.data()), data.size());
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

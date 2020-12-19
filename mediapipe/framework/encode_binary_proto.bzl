@@ -1,3 +1,17 @@
+# Copyright 2019-2020 The MediaPipe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """A rule for encoding a text format protocol buffer into binary.
 
 Example usage:
@@ -36,6 +50,11 @@ def _canonicalize_proto_path_oss(all_protos, genfile_path):
     for s in all_protos.to_list():
         if s.path.startswith(genfile_path):
             repo_name, _, file_name = s.path[len(genfile_path + "/external/"):].partition("/")
+
+            # handle virtual imports
+            if file_name.startswith("_virtual_imports"):
+                repo_name = repo_name + "/" + "/".join(file_name.split("/", 2)[:2])
+                file_name = file_name.split("/", 2)[-1]
             proto_paths.append(genfile_path + "/external/" + repo_name)
             proto_file_names.append(file_name)
         else:
@@ -87,13 +106,19 @@ def _encode_binary_proto_impl(ctx):
                 ctx.executable._proto_compiler.path,
                 "--encode=" + ctx.attr.message_type,
                 "--proto_path=" + ctx.genfiles_dir.path,
+                "--proto_path=" + ctx.bin_dir.path,
                 "--proto_path=.",
             ] + path_list + file_list +
             ["<", textpb.path, ">", binarypb.path],
         ),
         mnemonic = "EncodeProto",
     )
-    return struct(files = depset([binarypb]))
+
+    output_depset = depset([binarypb])
+    return [DefaultInfo(
+        files = output_depset,
+        data_runfiles = ctx.runfiles(transitive_files = output_depset),
+    )]
 
 encode_binary_proto = rule(
     implementation = _encode_binary_proto_impl,
@@ -130,12 +155,14 @@ def _generate_proto_descriptor_set_impl(ctx):
     # order of gendir before ., is needed for the proto compiler to resolve
     # import statements that reference proto files produced by a genrule.
     ctx.actions.run(
-        inputs = all_protos.to_list() + [ctx.executable._proto_compiler],
+        inputs = all_protos,
+        tools = [ctx.executable._proto_compiler],
         outputs = [descriptor],
         executable = ctx.executable._proto_compiler,
         arguments = [
                         "--descriptor_set_out=%s" % descriptor.path,
                         "--proto_path=" + ctx.genfiles_dir.path,
+                        "--proto_path=" + ctx.bin_dir.path,
                         "--proto_path=.",
                     ] +
                     [s.path for s in all_protos.to_list()],

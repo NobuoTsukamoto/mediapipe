@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(
     default_visibility = ["//visibility:public"],
@@ -82,6 +82,7 @@ cc_library(
     }),
     visibility = ["//visibility:public"],
     deps = [
+        ":class_registry",
         ":jni_util",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_profile_cc_proto",
@@ -90,6 +91,7 @@ cc_library(
         "//mediapipe/framework/formats:matrix_data_cc_proto",
         "//mediapipe/framework/formats:time_series_header_cc_proto",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@eigen_archive//:eigen",
         "//mediapipe/framework:camera_intrinsics",
@@ -129,12 +131,48 @@ cc_library(
 
 cc_library(
     name = "jni_util",
-    srcs = (["jni_util.cc"]),
-    hdrs = (["jni_util.h"]),
+    srcs = ["jni_util.cc"],
+    hdrs = ["jni_util.h"],
     deps = [
+        ":class_registry",
         "@com_google_absl//absl/synchronization",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:status",
+    ] + select({
+        "//conditions:default": [
+        ],
+        "//mediapipe:android": [
+        ],
+    }),
+)
+
+cc_library(
+    name = "class_registry",
+    srcs = ["class_registry.cc"],
+    hdrs = ["class_registry.h"],
+    deps = [
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/container:node_hash_map",
+    ] + select({
+        "//conditions:default": [
+        ],
+        "//mediapipe:android": [
+        ],
+    }),
+)
+
+cc_library(
+    name = "register_natives",
+    srcs = ["register_natives.cc"],
+    hdrs = ["register_natives.h"],
+    deps = [
+        ":class_registry",
+        ":mediapipe_framework_jni",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/container:node_hash_map",
+        "//mediapipe/framework/port:logging",
     ] + select({
         "//conditions:default": [
         ],

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/strings/substitute.h"
+#include "absl/strings/str_replace.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_saved_model_generator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -25,6 +25,7 @@
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/tool/tag_map_helper.h"
 #include "mediapipe/framework/tool/validate_type.h"
+#include "tensorflow/core/framework/device_attributes.pb.h"
 
 namespace mediapipe {
 
@@ -68,7 +69,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
   PacketSet input_side_packets(tool::CreateTagMap({}).ValueOrDie());
   PacketSet output_side_packets(
       tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+  mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
@@ -110,7 +111,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
       Adopt(new std::string(GetSavedModelDir()));
   PacketSet output_side_packets(
       tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+  mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
@@ -125,7 +126,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
 TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
        ProducesPacketUsableByTensorFlowInferenceCalculator) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
           absl::Substitute(R"(
       node {
         calculator: "TensorFlowInferenceCalculator"
@@ -186,7 +187,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
   PacketSet input_side_packets(tool::CreateTagMap({}).ValueOrDie());
   PacketSet output_side_packets(
       tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+  mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
@@ -194,6 +195,30 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
       output_side_packets.Tag("SESSION").Get<TensorFlowSession>();
   // Session must be set.
   ASSERT_NE(session.session, nullptr);
+}
+
+TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
+       ConfiguresSessionGivenConfig) {
+  generator_options_->set_saved_model_path(
+      std::string(file::SplitPath(GetSavedModelDir()).first));
+  generator_options_->set_load_latest_model(true);
+  generator_options_->mutable_session_config()->mutable_device_count()->insert(
+      {"CPU", 10});
+
+  PacketSet input_side_packets(tool::CreateTagMap({}).ValueOrDie());
+  PacketSet output_side_packets(
+      tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
+  mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+      "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
+      input_side_packets, &output_side_packets);
+  MP_EXPECT_OK(run_status) << run_status.message();
+  const TensorFlowSession& session =
+      output_side_packets.Tag("SESSION").Get<TensorFlowSession>();
+  // Session must be set.
+  ASSERT_NE(session.session, nullptr);
+  std::vector<tensorflow::DeviceAttributes> devices;
+  ASSERT_EQ(session.session->ListDevices(&devices), tensorflow::Status::OK());
+  EXPECT_THAT(devices.size(), 10);
 }
 
 }  // namespace

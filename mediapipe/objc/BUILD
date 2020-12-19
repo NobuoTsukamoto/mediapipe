@@ -1,6 +1,8 @@
+load("//mediapipe/framework/tool:mediapipe_graph.bzl", "mediapipe_binary_graph")
+
 package(default_visibility = ["//visibility:private"])
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "CFHolder",
@@ -16,12 +18,18 @@ cc_library(
     name = "util",
     srcs = ["util.cc"],
     hdrs = ["util.h"],
+    features = ["-parse_headers"],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
         ":CFHolder",
-        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:packet",
         "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/port:logging",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
     ],
 )
 
@@ -43,45 +51,41 @@ MEDIAPIPE_IOS_HDRS = [
     "NSError+util_status.h",
 ]
 
-MEDIAPIPE_IOS_CC_DEPS = [
-    ":CFHolder",
-    ":util",
-    "//mediapipe/framework/port:map_util",
-    "//mediapipe/framework/port:ret_check",
-    "//mediapipe/framework/port:source_location",
-    "//mediapipe/framework/port:status",
-    "//mediapipe/framework/port:statusor",
-    "//mediapipe/framework/port:threadpool",
-    "//mediapipe/framework:calculator_framework",
-    "//mediapipe/framework:mediapipe_profiling",
-    "//mediapipe/gpu:MPPGraphGPUData",
-    "//mediapipe/gpu:pixel_buffer_pool_util",
-    "//mediapipe/gpu:gpu_buffer",
-    "//mediapipe/gpu:gl_base",
-    "//mediapipe/gpu:gpu_shared_data_internal",
-    "//mediapipe/gpu:graph_support",
-    # Other deps
-    "//mediapipe/util:cpu_util",
-    "@com_google_absl//absl/base:core_headers",
-    "@com_google_absl//absl/memory",
-    "@com_google_absl//absl/strings",
-    "@com_google_absl//absl/synchronization",
-]
-
 objc_library(
     name = "mediapipe_framework_ios",
     srcs = MEDIAPIPE_IOS_SRCS,
     hdrs = MEDIAPIPE_IOS_HDRS,
     copts = [
         "-Wno-shorten-64-to-32",
+        "-std=c++17",
     ],
     sdk_frameworks = [
         # Needed for OpenCV.
         "Accelerate",
     ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
-    deps = MEDIAPIPE_IOS_CC_DEPS + [
-        # These are objc_library deps.
+    deps = [
+        ":CFHolder",
+        ":util",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:mediapipe_profiling",
+        "//mediapipe/framework/port:map_util",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:source_location",
+        "//mediapipe/framework/port:status",
+        "//mediapipe/framework/port:statusor",
+        "//mediapipe/framework/port:threadpool",
+        "//mediapipe/gpu:MPPGraphGPUData",
+        "//mediapipe/gpu:gl_base",
+        "//mediapipe/gpu:gpu_buffer",
+        "//mediapipe/gpu:gpu_shared_data_internal",
+        "//mediapipe/gpu:graph_support",
+        "//mediapipe/gpu:pixel_buffer_pool_util",
+        "//mediapipe/util:cpu_util",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
         "@google_toolbox_for_mac//:GTM_Defines",
     ],
 )
@@ -89,16 +93,27 @@ objc_library(
 objc_library(
     name = "mediapipe_input_sources_ios",
     srcs = [
-        "MPPCameraInputSource.m",
-        "MPPDisplayLinkWeakTarget.m",
         "MPPInputSource.m",
         "MPPPlayerInputSource.m",
-    ],
+    ] + select({
+        "//mediapipe:ios": [
+            "MPPCameraInputSource.m",
+            "MPPDisplayLinkWeakTarget.m",
+        ],
+        "//conditions:default": [],
+    }),
     hdrs = [
-        "MPPCameraInputSource.h",
-        "MPPDisplayLinkWeakTarget.h",
         "MPPInputSource.h",
         "MPPPlayerInputSource.h",
+    ] + select({
+        "//mediapipe:ios": [
+            "MPPCameraInputSource.h",
+            "MPPDisplayLinkWeakTarget.h",
+        ],
+        "//conditions:default": [],
+    }),
+    sdk_frameworks = [
+        "CoreVideo",
     ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
 )
@@ -113,6 +128,7 @@ objc_library(
     ],
     copts = [
         "-Wno-shorten-64-to-32",
+        "-std=c++17",
     ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
@@ -152,6 +168,7 @@ objc_library(
     ],
     copts = [
         "-Wno-shorten-64-to-32",
+        "-std=c++17",
     ],
     sdk_frameworks = [
         "CoreVideo",
@@ -174,6 +191,7 @@ objc_library(
     ],
     copts = [
         "-Wno-shorten-64-to-32",
+        "-std=c++17",
     ],
     sdk_frameworks = [
         "Accelerate",
@@ -204,6 +222,7 @@ objc_library(
     ],
     copts = [
         "-Wno-shorten-64-to-32",
+        "-std=c++17",
     ],
     data = [
         "testdata/googlelogo_color_272x92dp.png",
@@ -227,8 +246,6 @@ objc_library(
         "//mediapipe/calculators/core:pass_through_calculator",
     ],
 )
-
-load("//mediapipe/framework/tool:mediapipe_graph.bzl", "mediapipe_binary_graph")
 
 [
     mediapipe_binary_graph(

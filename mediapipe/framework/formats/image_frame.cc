@@ -277,6 +277,8 @@ int ImageFrame::NumberOfChannelsForFormat(ImageFormat::Format format) {
       return 4;
     case ImageFormat::VEC32F1:
       return 1;
+    case ImageFormat::VEC32F2:
+      return 2;
     case ImageFormat::LAB8:
       return 3;
     case ImageFormat::SBGRA:
@@ -304,6 +306,8 @@ int ImageFrame::ChannelSizeForFormat(ImageFormat::Format format) {
       return sizeof(uint16);
     case ImageFormat::VEC32F1:
       return sizeof(float);
+    case ImageFormat::VEC32F2:
+      return sizeof(float);
     case ImageFormat::LAB8:
       return sizeof(uint8);
     case ImageFormat::SBGRA:
@@ -330,6 +334,8 @@ int ImageFrame::ByteDepthForFormat(ImageFormat::Format format) {
     case ImageFormat::SRGBA64:
       return 2;
     case ImageFormat::VEC32F1:
+      return 4;
+    case ImageFormat::VEC32F2:
       return 4;
     case ImageFormat::LAB8:
       return 1;
@@ -371,11 +377,12 @@ void ImageFrame::CopyPixelData(ImageFormat::Format format, int width,
 void ImageFrame::CopyToBuffer(uint8* buffer, int buffer_size) const {
   CHECK(buffer);
   CHECK_EQ(1, ByteDepth());
-  int data_size = width_ * height_ * NumberOfChannels() * ByteDepth();
+  const int data_size = width_ * height_ * NumberOfChannels();
   CHECK_LE(data_size, buffer_size);
   if (IsContiguous()) {
     // The data is stored contiguously, we can just copy.
-    std::copy_n(pixel_data_.get(), data_size, buffer);
+    const uint8* src = reinterpret_cast<const uint8*>(pixel_data_.get());
+    std::copy_n(src, data_size, buffer);
   } else {
     InternalCopyToBuffer(0 /* contiguous storage */,
                          reinterpret_cast<char*>(buffer));

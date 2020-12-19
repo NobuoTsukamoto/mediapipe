@@ -25,11 +25,17 @@ message TfLiteTensorsToLandmarksCalculatorOptions {
     optional TfLiteTensorsToLandmarksCalculatorOptions ext = 257405002;
   }
 
+  enum Activation {
+    NONE = 0;
+    SIGMOID = 1;
+  }
+
   // Number of landmarks from the output of the model.
   required int32 num_landmarks = 1;
 
   // Size of the input image for the model. These options are used only when
-  // normalized landmarks is needed.
+  // normalized landmarks are needed. Z coordinate is scaled as X assuming
+  // a weak perspective projection camera model.
   optional int32 input_image_width = 2;
   optional int32 input_image_height = 3;
 
@@ -46,6 +52,14 @@ message TfLiteTensorsToLandmarksCalculatorOptions {
   // beforehand.
   optional bool flip_horizontally = 6 [default = false];
 
-  // A value that z values should be divided by.
+  // A value that Z coordinates should be divided by. This option is used only
+  // when normalized landmarks are needed. It is applied in addition to Z
+  // coordinate being re-scaled as X.
   optional float normalize_z = 5 [default = 1.0];
+
+  // Apply activation function to the tensor representing landmark visibility.
+  optional Activation visibility_activation = 7 [default = NONE];
+
+  // Apply activation function to the tensor representing landmark presence.
+  optional Activation presence_activation = 8 [default = NONE];
 }

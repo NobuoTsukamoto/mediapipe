@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = [
     "//visibility:public",
@@ -40,7 +40,7 @@ cc_library(
 # Demos
 
 cc_binary(
-    name = "object_detection_cpu",
+    name = "object_detection_tpu",
     deps = [
         "//mediapipe/examples/coral:demo_run_graph_main",
         "//mediapipe/graphs/object_detection:desktop_tflite_calculators",
@@ -48,9 +48,9 @@ cc_binary(
 )
 
 cc_binary(
-    name = "face_detection_cpu",
+    name = "face_detection_tpu",
     deps = [
         "//mediapipe/examples/coral:demo_run_graph_main",
-        "//mediapipe/graphs/face_detection:desktop_tflite_calculators",
+        "//mediapipe/graphs/face_detection:desktop_live_calculators",
     ],
 )

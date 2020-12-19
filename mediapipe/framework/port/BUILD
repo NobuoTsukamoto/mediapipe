@@ -15,7 +15,7 @@
 # Description:
 #  Port of various libraries and utilities.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(
     default_visibility = ["//visibility:private"],
@@ -44,7 +44,10 @@ cc_library(
     name = "aligned_malloc_and_free",
     hdrs = ["aligned_malloc_and_free.h"],
     visibility = ["//visibility:public"],
-    deps = ["//mediapipe/framework/deps:aligned_malloc_and_free"],
+    deps = [
+        "//mediapipe/framework/deps:aligned_malloc_and_free",
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )
 
 # This proto lib is used by any code that needs to do proto I/O and proto template parsing.
@@ -96,7 +99,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework:port",
-        "@com_github_glog_glog//:glog",
+        "//third_party:glog",
     ],
 )
 
@@ -129,10 +132,12 @@ cc_library(
     name = "image_resizer",
     hdrs = ["image_resizer.h"],
     visibility = ["//visibility:public"],
-    deps = [
-        "//mediapipe/framework/deps:image_resizer",
-        "//third_party:opencv",
-    ],
+    deps = select({
+        "//conditions:default": [
+            "//mediapipe/framework/deps:image_resizer",
+            "//mediapipe/framework/port:opencv_core",
+        ],
+    }),
 )
 
 cc_library(
@@ -152,6 +157,33 @@ cc_library(
 )
 
 cc_library(
+    name = "re2",
+    hdrs = [
+        "re2.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework/deps:re2",
+    ],
+)
+
+cc_library(
+    name = "gtest",
+    testonly = 1,
+    hdrs = [
+        "gmock.h",
+        "gtest.h",
+        "status_matchers.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":status_matchers",
+        "//mediapipe/framework:port",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "gtest_main",
     testonly = 1,
     hdrs = [
@@ -161,6 +193,7 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":status_matchers",
         "//mediapipe/framework:port",
         "//mediapipe/framework/deps:status_matchers",
         "@com_google_googletest//:gtest_main",
@@ -175,7 +208,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework:port",
-        "@com_github_glog_glog//:glog",
+        "//third_party:glog",
         "@com_google_absl//absl/time",
     ],
 )
@@ -244,6 +277,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":opencv_core",
+        "//mediapipe/framework:port",
         "//third_party:opencv",
     ],
 )
@@ -276,11 +310,10 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":core_proto",
         ":logging",
         "//mediapipe/framework:port",
-    ] + select({
-        "//conditions:default": ["@com_google_protobuf//:protobuf"],
-    }),
+    ],
 )
 
 cc_library(
@@ -349,6 +382,7 @@ cc_library(
         ":source_location",
         "//mediapipe/framework:port",
         "//mediapipe/framework/deps:status",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -362,6 +396,18 @@ cc_library(
     deps = [
         "//mediapipe/framework:port",
         "//mediapipe/framework/deps:statusor",
+    ],
+)
+
+cc_library(
+    name = "status_matchers",
+    testonly = 1,
+    hdrs = ["status_matchers.h"],
+    # Use this library through "mediapipe/framework/port:gtest_main".
+    visibility = ["//mediapipe/framework/port:__pkg__"],
+    deps = [
+        ":status",
+        "@com_google_googletest//:gtest",
     ],
 )
 

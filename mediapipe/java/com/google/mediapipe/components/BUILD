@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 android_library(
     name = "android_components",
@@ -25,14 +25,15 @@ android_library(
     ),
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/framework:calculator_java_proto_lite",
         "//mediapipe/java/com/google/mediapipe/framework:android_framework",
         "//mediapipe/java/com/google/mediapipe/glutil",
         "//third_party:androidx_appcompat",
         "//third_party:androidx_core",
         "//third_party:androidx_legacy_support_v4",
         "//third_party:androidx_recyclerview",
-        "@com_google_code_findbugs//jar",
-        "@com_google_guava_android//jar",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -46,26 +47,33 @@ android_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/java/com/google/mediapipe/glutil",
         "//third_party:androidx_appcompat",
+        "//third_party:androidx_core",
         "//third_party:androidx_legacy_support_v4",
-        "//third_party:camera2",
+        "//third_party:camerax_camera2",
         "//third_party:camerax_core",
-        "@androidx_concurrent_futures//jar",
-        "@androidx_lifecycle//jar",
-        "@com_google_code_findbugs//jar",
-        "@com_google_guava_android//jar",
+        "//third_party:camerax_lifecycle",
+        "@maven//:androidx_concurrent_concurrent_futures",
+        "@maven//:androidx_lifecycle_lifecycle_common",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_guava_listenablefuture",
     ],
 )
 
 android_library(
     name = "android_microphone_helper",
     srcs = [
+        "AudioDataConsumer.java",
+        "AudioDataProcessor.java",
+        "AudioDataProducer.java",
         "MicrophoneHelper.java",
     ],
     visibility = ["//visibility:public"],
     deps = [
-        "@com_google_code_findbugs//jar",
-        "@com_google_guava_android//jar",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_guava",
     ],
 )
 

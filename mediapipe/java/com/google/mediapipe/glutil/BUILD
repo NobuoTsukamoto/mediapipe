@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 # OpenGL utilities.
 
@@ -23,11 +23,11 @@ android_library(
     srcs = glob(["**/*.java"]),
     visibility = ["//visibility:public"],
     deps = [
-        "//mediapipe/java/com/google/mediapipe/framework:android_framework",
-        "@com_google_code_findbugs//jar",
-        "@com_google_common_flogger//jar",
-        "@com_google_common_flogger_system_backend//jar",
-        "@com_google_guava_android//jar",
+        "//mediapipe/java/com/google/mediapipe/framework:android_framework_no_proguard",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_flogger_flogger",
+        "@maven//:com_google_flogger_flogger_system_backend",
+        "@maven//:com_google_guava_guava",
     ],
 )
 

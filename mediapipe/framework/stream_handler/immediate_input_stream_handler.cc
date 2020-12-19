@@ -19,6 +19,8 @@
 
 namespace mediapipe {
 
+using SyncSet = InputStreamHandler::SyncSet;
+
 // An input stream handler that delivers input packets to the Calculator
 // immediately, with no dependency between input streams.  It also invokes
 // Calculator::Process when any input stream becomes done.
@@ -38,6 +40,13 @@ class ImmediateInputStreamHandler : public InputStreamHandler {
       const MediaPipeOptions& options, bool calculator_run_in_parallel);
 
  protected:
+  // Reinitializes this InputStreamHandler before each CalculatorGraph run.
+  void PrepareForRun(
+      std::function<void()> headers_ready_callback,
+      std::function<void()> notification_callback,
+      std::function<void(CalculatorContext*)> schedule_callback,
+      std::function<void(mediapipe::Status)> error_callback) override;
+
   // Returns kReadyForProcess whenever a Packet is available at any of
   // the input streams, or any input stream becomes done.
   NodeReadiness GetNodeReadiness(Timestamp* min_stream_timestamp) override;
@@ -47,8 +56,14 @@ class ImmediateInputStreamHandler : public InputStreamHandler {
   void FillInputSet(Timestamp input_timestamp,
                     InputStreamShardSet* input_set) override;
 
-  // Record of the last reported timestamp bound for each input stream.
-  mediapipe::internal::Collection<Timestamp> timestamp_bounds_;
+  // Returns the number of sync-sets maintained by this input-handler.
+  int SyncSetCount() override;
+
+  absl::Mutex mutex_;
+  // The packet-set builder for each input stream.
+  std::vector<SyncSet> sync_sets_ ABSL_GUARDED_BY(mutex_);
+  // The input timestamp for each kReadyForProcess input stream.
+  std::vector<Timestamp> ready_timestamps_ ABSL_GUARDED_BY(mutex_);
 };
 REGISTER_INPUT_STREAM_HANDLER(ImmediateInputStreamHandler);
 
@@ -57,31 +72,73 @@ ImmediateInputStreamHandler::ImmediateInputStreamHandler(
     CalculatorContextManager* calculator_context_manager,
     const MediaPipeOptions& options, bool calculator_run_in_parallel)
     : InputStreamHandler(tag_map, calculator_context_manager, options,
-                         calculator_run_in_parallel),
-      timestamp_bounds_(std::move(tag_map)) {}
+                         calculator_run_in_parallel) {
+  for (auto id = tag_map->BeginId(); id < tag_map->EndId(); ++id) {
+    sync_sets_.emplace_back(this, std::vector<CollectionItemId>{id});
+    ready_timestamps_.push_back(Timestamp::Unset());
+  }
+}
+
+void ImmediateInputStreamHandler::PrepareForRun(
+    std::function<void()> headers_ready_callback,
+    std::function<void()> notification_callback,
+    std::function<void(CalculatorContext*)> schedule_callback,
+    std::function<void(mediapipe::Status)> error_callback) {
+  {
+    absl::MutexLock lock(&mutex_);
+    for (int i = 0; i < sync_sets_.size(); ++i) {
+      sync_sets_[i].PrepareForRun();
+      ready_timestamps_[i] = Timestamp::Unset();
+    }
+  }
+  InputStreamHandler::PrepareForRun(
+      std::move(headers_ready_callback), std::move(notification_callback),
+      std::move(schedule_callback), std::move(error_callback));
+}
 
 NodeReadiness ImmediateInputStreamHandler::GetNodeReadiness(
     Timestamp* min_stream_timestamp) {
-  *min_stream_timestamp = Timestamp::Done();
+  absl::MutexLock lock(&mutex_);
   Timestamp input_timestamp = Timestamp::Done();
+  Timestamp min_bound = Timestamp::Done();
   bool stream_became_done = false;
-
-  for (CollectionItemId i = input_stream_managers_.BeginId();
-       i < input_stream_managers_.EndId(); ++i) {
-    const auto& stream = input_stream_managers_.Get(i);
-    bool empty;
-    Timestamp stream_timestamp = stream->MinTimestampOrBound(&empty);
-    if (!empty) {
-      input_timestamp = std::min(input_timestamp, stream_timestamp);
+  for (int i = 0; i < sync_sets_.size(); ++i) {
+    if (ready_timestamps_[i] > Timestamp::Unset()) {
+      min_bound = std::min(min_bound, ready_timestamps_[i]);
+      input_timestamp = std::min(input_timestamp, ready_timestamps_[i]);
+      continue;
     }
-    *min_stream_timestamp = std::min(*min_stream_timestamp, stream_timestamp);
-    if (stream_timestamp != timestamp_bounds_.Get(i)) {
-      if (stream_timestamp == Timestamp::Done()) {
+    Timestamp prev_ts = sync_sets_[i].LastProcessed();
+    Timestamp stream_ts;
+    NodeReadiness readiness = sync_sets_[i].GetReadiness(&stream_ts);
+    min_bound = std::min(min_bound, stream_ts);
+    if (readiness == NodeReadiness::kReadyForProcess) {
+      ready_timestamps_[i] = stream_ts;
+      input_timestamp = std::min(input_timestamp, stream_ts);
+    } else if (readiness == NodeReadiness::kReadyForClose) {
+      CHECK_EQ(stream_ts, Timestamp::Done());
+      if (ProcessTimestampBounds()) {
+        // With kReadyForClose, the timestamp-bound Done is returned.
+        // TODO: Make all InputStreamHandlers process Done() like this.
+        static const Timestamp kDonePrecedingTimestamp =
+            Timestamp::Done().PreviousAllowedInStream();
+        if (prev_ts < kDonePrecedingTimestamp) {
+          // When kReadyForClose is received for the first time for a sync set,
+          // it is processed using the timestamp preceding Done() to indicate
+          // input stream is done, but still needs to be processed.
+          min_bound = std::min(min_bound, kDonePrecedingTimestamp);
+          input_timestamp = std::min(input_timestamp, kDonePrecedingTimestamp);
+          ready_timestamps_[i] = kDonePrecedingTimestamp;
+        } else {
+          ready_timestamps_[i] = Timestamp::Done();
+        }
+      } else if (prev_ts < Timestamp::Done()) {
         stream_became_done = true;
+        ready_timestamps_[i] = Timestamp::Done();
       }
-      timestamp_bounds_.Get(i) = stream_timestamp;
     }
   }
+  *min_stream_timestamp = min_bound;
 
   if (*min_stream_timestamp == Timestamp::Done()) {
     return NodeReadiness::kReadyForClose;
@@ -94,6 +151,8 @@ NodeReadiness ImmediateInputStreamHandler::GetNodeReadiness(
   }
 
   if (stream_became_done) {
+    // The stream_became_done logic is kept for backward compatibility.
+    // Note that the minimum bound is returned in min_stream_timestamp.
     return NodeReadiness::kReadyForProcess;
   }
 
@@ -102,25 +161,20 @@ NodeReadiness ImmediateInputStreamHandler::GetNodeReadiness(
 
 void ImmediateInputStreamHandler::FillInputSet(Timestamp input_timestamp,
                                                InputStreamShardSet* input_set) {
-  CHECK(input_timestamp.IsAllowedInStream());
-  CHECK(input_set);
-  for (CollectionItemId id = input_stream_managers_.BeginId();
-       id < input_stream_managers_.EndId(); ++id) {
-    auto& stream = input_stream_managers_.Get(id);
-    if (stream->QueueHead().Timestamp() == input_timestamp) {
-      int num_packets_dropped = 0;
-      bool stream_is_done = false;
-      Packet current_packet = stream->PopPacketAtTimestamp(
-          input_timestamp, &num_packets_dropped, &stream_is_done);
-      AddPacketToShard(&input_set->Get(id), std::move(current_packet),
-                       stream_is_done);
+  absl::MutexLock lock(&mutex_);
+  for (int i = 0; i < sync_sets_.size(); ++i) {
+    if (ready_timestamps_[i] == input_timestamp) {
+      sync_sets_[i].FillInputSet(input_timestamp, input_set);
+      ready_timestamps_[i] = Timestamp::Unset();
     } else {
-      Timestamp bound = stream->MinTimestampOrBound(nullptr);
-      AddPacketToShard(&input_set->Get(id),
-                       Packet().At(bound.PreviousAllowedInStream()),
-                       bound == Timestamp::Done());
+      sync_sets_[i].FillInputBounds(input_set);
     }
   }
+}
+
+int ImmediateInputStreamHandler::SyncSetCount() {
+  absl::MutexLock lock(&mutex_);
+  return sync_sets_.size();
 }
 
 }  // namespace mediapipe

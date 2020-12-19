@@ -113,9 +113,12 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   TF_LITE_ENSURE_EQ(context, ::tflite::NumInputs(node), 1);
   TF_LITE_ENSURE_EQ(context, ::tflite::NumOutputs(node), 2);
   TfLiteTensor* output = ::tflite::GetOutput(context, node, kOutputTensor);
+  TF_LITE_ENSURE(context, output != nullptr);
   TfLiteTensor* indices = ::tflite::GetOutput(context, node, kIndicesTensor);
+  TF_LITE_ENSURE(context, indices != nullptr);
   const TfLiteTensor* input =
       ::tflite::GetInput(context, node, kDataInputTensor);
+  TF_LITE_ENSURE(context, input != nullptr);
   TF_LITE_ENSURE_EQ(context, ::tflite::NumDimensions(input), 4);
   TF_LITE_ENSURE_EQ(context, input->type, kTfLiteFloat32);
   TF_LITE_ENSURE_EQ(context, output->type, kTfLiteFloat32);
@@ -130,11 +133,10 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   auto padding = params->padding;
   auto compute_out_size = [padding](int image_size, int filter_size,
                                     int stride) -> int {
-    return padding == kTfLitePaddingSame
-               ? (image_size + stride - 1) / stride
-               : padding == kTfLitePaddingValid
-                     ? (image_size - filter_size + stride) / stride
-                     : 0;
+    return padding == kTfLitePaddingSame ? (image_size + stride - 1) / stride
+           : padding == kTfLitePaddingValid
+               ? (image_size - filter_size + stride) / stride
+               : 0;
   };
 
   int out_width =
@@ -153,10 +155,10 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   output_size->data[2] = out_width;
   output_size->data[3] = channels_out;
   TfLiteIntArray* indices_size = TfLiteIntArrayCopy(output_size);
-  if (context->ResizeTensor(context, output, output_size) == kTfLiteError) {
+  if (context->ResizeTensor(context, output, output_size) != kTfLiteOk) {
     return kTfLiteError;
   }
-  if (context->ResizeTensor(context, indices, indices_size) == kTfLiteError) {
+  if (context->ResizeTensor(context, indices, indices_size) != kTfLiteOk) {
     return kTfLiteError;
   }
   return kTfLiteOk;
@@ -169,9 +171,12 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
       reinterpret_cast<TfLitePaddingValues*>(node->user_data);
 
   TfLiteTensor* output = ::tflite::GetOutput(context, node, kOutputTensor);
+  TF_LITE_ENSURE(context, output != nullptr);
   TfLiteTensor* indices = ::tflite::GetOutput(context, node, kIndicesTensor);
+  TF_LITE_ENSURE(context, indices != nullptr);
   const TfLiteTensor* input =
       ::tflite::GetInput(context, node, kDataInputTensor);
+  TF_LITE_ENSURE(context, input != nullptr);
 
   float activation_min, activation_max;
   ::tflite::CalculateActivationRange(params->activation, &activation_min,

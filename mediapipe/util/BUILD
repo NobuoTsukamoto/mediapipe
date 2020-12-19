@@ -12,56 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
-load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library")
-
-proto_library(
+mediapipe_proto_library(
     name = "audio_decoder_proto",
     srcs = ["audio_decoder.proto"],
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/framework:calculator_options_proto",
         "//mediapipe/framework:calculator_proto",
     ],
 )
 
-proto_library(
+mediapipe_proto_library(
     name = "color_proto",
     srcs = ["color.proto"],
     visibility = ["//visibility:public"],
 )
 
-proto_library(
+mediapipe_proto_library(
     name = "render_data_proto",
     srcs = ["render_data.proto"],
     visibility = ["//visibility:public"],
     deps = ["//mediapipe/util:color_proto"],
-)
-
-mediapipe_cc_proto_library(
-    name = "color_cc_proto",
-    srcs = ["color.proto"],
-    visibility = ["//visibility:public"],
-    deps = [":color_proto"],
-)
-
-mediapipe_cc_proto_library(
-    name = "render_data_cc_proto",
-    srcs = ["render_data.proto"],
-    cc_deps = [":color_cc_proto"],
-    visibility = ["//visibility:public"],
-    deps = [":render_data_proto"],
-)
-
-mediapipe_cc_proto_library(
-    name = "audio_decoder_cc_proto",
-    srcs = ["audio_decoder.proto"],
-    cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
-    visibility = ["//visibility:public"],
-    deps = [":audio_decoder_proto"],
 )
 
 cc_library(
@@ -141,6 +118,7 @@ cc_library(
         "//mediapipe/framework/formats:image_frame_opencv",
         "//mediapipe/framework/formats:yuv_image",
         "//mediapipe/framework/port",
+        "//mediapipe/framework/port:aligned_malloc_and_free",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_imgproc",
@@ -173,14 +151,14 @@ cc_library(
     srcs = select({
         "//conditions:default": ["resource_util.cc"],
         "//mediapipe:android": ["resource_util_android.cc"],
-        "//mediapipe:apple": ["resource_util_apple.cc"],
+        "//mediapipe:ios": ["resource_util_apple.cc"],
         "//mediapipe:macos": ["resource_util.cc"],
     }),
     hdrs = ["resource_util.h"],
     # We use Objective-C++ on iOS.
     copts = select({
         "//conditions:default": [],
-        "//mediapipe:apple": [
+        "//mediapipe:ios": [
             "-ObjC++",
         ],
         "//mediapipe:macos": [],
@@ -195,15 +173,19 @@ cc_library(
         "@com_google_absl//absl/strings",
     ] + select({
         "//conditions:default": [
+            "//mediapipe/framework/deps:file_path",
             "//mediapipe/framework/port:file_helpers",
+            "@com_google_absl//absl/flags:flag",
         ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",
             "//mediapipe/util/android/file/base",
         ],
-        "//mediapipe:apple": [],
+        "//mediapipe:ios": [],
         "//mediapipe:macos": [
+            "//mediapipe/framework/deps:file_path",
             "//mediapipe/framework/port:file_helpers",
+            "@com_google_absl//absl/flags:flag",
         ],
     }),
 )
@@ -231,7 +213,7 @@ cc_library(
             "@org_tensorflow//tensorflow/core:framework",
         ],
         "//mediapipe:android": [
-            "@org_tensorflow//tensorflow/core:android_tensorflow_lib_lite",
+            "@org_tensorflow//tensorflow/core:portable_tensorflow_lib_lite",
         ],
     }),
 )

@@ -47,9 +47,9 @@ namespace mediapipe {
 //
 class CalculatorContract {
  public:
-  ::mediapipe::Status Initialize(const CalculatorGraphConfig::Node& node);
-  ::mediapipe::Status Initialize(const PacketGeneratorConfig& node);
-  ::mediapipe::Status Initialize(const StatusHandlerConfig& node);
+  mediapipe::Status Initialize(const CalculatorGraphConfig::Node& node);
+  mediapipe::Status Initialize(const PacketGeneratorConfig& node);
+  mediapipe::Status Initialize(const StatusHandlerConfig& node);
   void SetNodeName(const std::string& node_name) { node_name_ = node_name; }
 
   // Returns the options given to this node.
@@ -84,7 +84,7 @@ class CalculatorContract {
     return *output_side_packets_;
   }
 
-  // Set this Node's default InputStreamHandler.
+  // Specifies the preferred InputStreamHandler for this Node.
   // If there is an InputStreamHandler specified in the graph (.pbtxt) for this
   // Node, then the graph's InputStreamHandler will take priority.
   void SetInputStreamHandler(const std::string& name) {
@@ -103,6 +103,32 @@ class CalculatorContract {
   MediaPipeOptions GetInputStreamHandlerOptions() const {
     return input_stream_handler_options_;
   }
+
+  // The next few methods are concerned with timestamp bound propagation
+  // (see scheduling_sync.md#input-policies). Every calculator that processes
+  // live inputs should specify either ProcessTimestampBounds or
+  // TimestampOffset.  Calculators that produce output at the same timestamp as
+  // the input, or with a fixed offset, should declare this fact using
+  // SetTimestampOffset.  Calculators that require custom timestamp bound
+  // calculations should use SetProcessTimestampBounds.
+
+  // When true, Process is called for every new timestamp bound, with or without
+  // new packets. A call to Process with only an input timestamp bound is
+  // normally used to compute a new output timestamp bound.
+  // NOTE: Also, when true, Process is called when input streams become done,
+  // which means, Process needs to handle input streams in "done" state.
+  // (Usually, by closing calculators' outputs where and when appropriate.)
+  void SetProcessTimestampBounds(bool process_timestamps) {
+    process_timestamps_ = process_timestamps;
+  }
+  bool GetProcessTimestampBounds() const { return process_timestamps_; }
+
+  // Specifies the maximum difference between input and output timestamps.
+  // When specified, the mediapipe framework automatically computes output
+  // timestamp bounds based on input timestamps.  The special value
+  // TimestampDiff::Unset disables the timestamp offset.
+  void SetTimestampOffset(TimestampDiff offset) { timestamp_offset_ = offset; }
+  TimestampDiff GetTimestampOffset() const { return timestamp_offset_; }
 
   class GraphServiceRequest {
    public:
@@ -147,6 +173,8 @@ class CalculatorContract {
   MediaPipeOptions input_stream_handler_options_;
   std::string node_name_;
   std::map<std::string, GraphServiceRequest> service_requests_;
+  bool process_timestamps_ = false;
+  TimestampDiff timestamp_offset_ = TimestampDiff::Unset();
 };
 
 }  // namespace mediapipe

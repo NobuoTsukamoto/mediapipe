@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "mediapipe/calculators/image/opencv_encoded_image_to_image_frame_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
@@ -33,24 +34,44 @@ namespace mediapipe {
 // }
 class OpenCvEncodedImageToImageFrameCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  static mediapipe::Status GetContract(CalculatorContract* cc);
+  mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
+
+ private:
+  mediapipe::OpenCvEncodedImageToImageFrameCalculatorOptions options_;
 };
 
-::mediapipe::Status OpenCvEncodedImageToImageFrameCalculator::GetContract(
+mediapipe::Status OpenCvEncodedImageToImageFrameCalculator::GetContract(
     CalculatorContract* cc) {
   cc->Inputs().Index(0).Set<std::string>();
   cc->Outputs().Index(0).Set<ImageFrame>();
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status OpenCvEncodedImageToImageFrameCalculator::Process(
+mediapipe::Status OpenCvEncodedImageToImageFrameCalculator::Open(
+    CalculatorContext* cc) {
+  options_ =
+      cc->Options<mediapipe::OpenCvEncodedImageToImageFrameCalculatorOptions>();
+  return mediapipe::OkStatus();
+}
+
+mediapipe::Status OpenCvEncodedImageToImageFrameCalculator::Process(
     CalculatorContext* cc) {
   const std::string& contents = cc->Inputs().Index(0).Get<std::string>();
   const std::vector<char> contents_vector(contents.begin(), contents.end());
-  cv::Mat decoded_mat =
-      cv::imdecode(contents_vector, -1 /* return the loaded image as-is */);
-
+  cv::Mat decoded_mat;
+  if (options_.apply_orientation_from_exif_data()) {
+    // We want to respect the orientation from the EXIF data, which
+    // IMREAD_UNCHANGED ignores, but otherwise we want to be as permissive as
+    // possible with our reading flags. Therefore, we use IMREAD_ANYCOLOR and
+    // IMREAD_ANYDEPTH.
+    decoded_mat = cv::imdecode(contents_vector,
+                               cv::IMREAD_ANYCOLOR | cv::IMREAD_ANYDEPTH);
+  } else {
+    // Return the loaded image as-is
+    decoded_mat = cv::imdecode(contents_vector, cv::IMREAD_UNCHANGED);
+  }
   ImageFormat::Format image_format = ImageFormat::UNKNOWN;
   cv::Mat output_mat;
   switch (decoded_mat.channels()) {
@@ -63,17 +84,18 @@ class OpenCvEncodedImageToImageFrameCalculator : public CalculatorBase {
       cv::cvtColor(decoded_mat, output_mat, cv::COLOR_BGR2RGB);
       break;
     case 4:
-      return ::mediapipe::UnimplementedErrorBuilder(MEDIAPIPE_LOC)
+      return mediapipe::UnimplementedErrorBuilder(MEDIAPIPE_LOC)
              << "4-channel image isn't supported yet";
     default:
-      return ::mediapipe::FailedPreconditionErrorBuilder(MEDIAPIPE_LOC)
+      return mediapipe::FailedPreconditionErrorBuilder(MEDIAPIPE_LOC)
              << "Unsupported number of channels: " << decoded_mat.channels();
   }
   std::unique_ptr<ImageFrame> output_frame = absl::make_unique<ImageFrame>(
-      image_format, decoded_mat.size().width, decoded_mat.size().height);
+      image_format, decoded_mat.size().width, decoded_mat.size().height,
+      ImageFrame::kGlDefaultAlignmentBoundary);
   output_mat.copyTo(formats::MatView(output_frame.get()));
   cc->Outputs().Index(0).Add(output_frame.release(), cc->InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 REGISTER_CALCULATOR(OpenCvEncodedImageToImageFrameCalculator);

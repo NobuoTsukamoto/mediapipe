@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/node_hash_map.h"
 #include "mediapipe/calculators/util/top_k_scores_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/classification.pb.h"
@@ -61,23 +62,23 @@ namespace mediapipe {
 // }
 class TopKScoresCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static mediapipe::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Open(CalculatorContext* cc) override;
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
 
  private:
-  ::mediapipe::Status LoadLabelmap(std::string label_map_path);
+  mediapipe::Status LoadLabelmap(std::string label_map_path);
 
   int top_k_ = -1;
   float threshold_ = 0.0;
-  std::unordered_map<int, std::string> label_map_;
+  absl::node_hash_map<int, std::string> label_map_;
   bool label_map_loaded_ = false;
 };
 REGISTER_CALCULATOR(TopKScoresCalculator);
 
-::mediapipe::Status TopKScoresCalculator::GetContract(CalculatorContract* cc) {
+mediapipe::Status TopKScoresCalculator::GetContract(CalculatorContract* cc) {
   RET_CHECK(cc->Inputs().HasTag("SCORES"));
   cc->Inputs().Tag("SCORES").Set<std::vector<float>>();
   if (cc->Outputs().HasTag("TOP_K_INDEXES")) {
@@ -95,10 +96,10 @@ REGISTER_CALCULATOR(TopKScoresCalculator);
   if (cc->Outputs().HasTag("SUMMARY")) {
     cc->Outputs().Tag("SUMMARY").Set<std::string>();
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TopKScoresCalculator::Open(CalculatorContext* cc) {
+mediapipe::Status TopKScoresCalculator::Open(CalculatorContext* cc) {
   const auto& options = cc->Options<::mediapipe::TopKScoresCalculatorOptions>();
   RET_CHECK(options.has_top_k() || options.has_threshold())
       << "Must specify at least one of the top_k and threshold fields in "
@@ -116,10 +117,10 @@ REGISTER_CALCULATOR(TopKScoresCalculator);
   if (cc->Outputs().HasTag("TOP_K_LABELS")) {
     RET_CHECK(!label_map_.empty());
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TopKScoresCalculator::Process(CalculatorContext* cc) {
+mediapipe::Status TopKScoresCalculator::Process(CalculatorContext* cc) {
   const std::vector<float>& input_vector =
       cc->Inputs().Tag("SCORES").Get<std::vector<float>>();
   std::vector<int> top_k_indexes;
@@ -212,10 +213,10 @@ REGISTER_CALCULATOR(TopKScoresCalculator);
       }
     }
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TopKScoresCalculator::LoadLabelmap(
+mediapipe::Status TopKScoresCalculator::LoadLabelmap(
     std::string label_map_path) {
   std::string string_path;
   ASSIGN_OR_RETURN(string_path, PathToResourceAsFile(label_map_path));
@@ -229,7 +230,7 @@ REGISTER_CALCULATOR(TopKScoresCalculator);
     label_map_[i++] = line;
   }
   label_map_loaded_ = true;
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

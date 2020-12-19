@@ -15,11 +15,15 @@
 #ifndef MEDIAPIPE_ANDROID_UTIL_ASSET_MANAGER_UTIL_H_
 #define MEDIAPIPE_ANDROID_UTIL_ASSET_MANAGER_UTIL_H_
 
+#include <string>
+#include <vector>
+
 #ifdef __ANDROID__
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <jni.h>
 
+#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/singleton.h"
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/statusor.h"
@@ -54,11 +58,23 @@ class AssetManager {
   ABSL_DEPRECATED("Use InitializeFromActivity instead.")
   bool InitializeFromAssetManager(JNIEnv* env, jobject local_asset_manager);
 
+  // Returns true if AAssetManager was successfully initialized.
+  // cache_dir_path should be set to context.getCacheDir().getAbsolutePath().
+  // We could get it from the context, but we have the Java layer pass it
+  // directly for convenience.
+  bool InitializeFromContext(JNIEnv* env, jobject context,
+                             const std::string& cache_dir_path);
+
   // Checks if a file exists. Returns true on success, false otherwise.
   bool FileExists(const std::string& filename);
 
-  // Reads a file into raw_bytes. Returns true on success, false otherwise.
-  bool ReadFile(const std::string& filename, std::vector<uint8_t>* raw_bytes);
+  // Reads a file into output. Returns true on success, false otherwise.
+  bool ReadFile(const std::string& filename, std::string* output);
+
+  // Reads the raw bytes referred to by the supplied content URI. Returns true
+  // on success, false otherwise.
+  mediapipe::Status ReadContentUri(const std::string& content_uri,
+                                   std::string* output);
 
   // Returns the path to the Android cache directory. Will be empty if
   // InitializeFromActivity has not been called.
@@ -76,6 +92,9 @@ class AssetManager {
 
   // Pointer to asset manager from JNI.
   AAssetManager* asset_manager_ = nullptr;
+
+  // The context from which assets should be loaded.
+  jobject context_;
 
   // Path to the Android cache directory for our context.
   std::string cache_dir_path_;

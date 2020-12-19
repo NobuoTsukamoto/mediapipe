@@ -18,24 +18,24 @@
 #include "absl/strings/str_format.h"
 #include "absl/types/span.h"
 #include "mediapipe/calculators/tflite/tflite_tensors_to_detections_calculator.pb.h"
-#include "mediapipe/calculators/tflite/util.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/formats/detection.pb.h"
 #include "mediapipe/framework/formats/location.h"
 #include "mediapipe/framework/formats/object_detection/anchor.pb.h"
 #include "mediapipe/framework/port/ret_check.h"
+#include "mediapipe/util/tflite/config.h"
 #include "tensorflow/lite/interpreter.h"
 
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
 #include "mediapipe/gpu/gl_calculator_helper.h"
 #include "tensorflow/lite/delegates/gpu/gl/gl_buffer.h"
 #include "tensorflow/lite/delegates/gpu/gl/gl_program.h"
 #include "tensorflow/lite/delegates/gpu/gl/gl_shader.h"
 #include "tensorflow/lite/delegates/gpu/gl_delegate.h"
-#endif  // !MEDIAPIPE_DISABLE_GPU
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
-#if defined(MEDIAPIPE_IOS)
+#if MEDIAPIPE_TFLITE_METAL_INFERENCE
 #import <CoreVideo/CoreVideo.h>
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -44,33 +44,29 @@
 #include "mediapipe/gpu/MPPMetalUtil.h"
 #include "mediapipe/gpu/gpu_buffer.h"
 #include "tensorflow/lite/delegates/gpu/metal_delegate.h"
-#endif  // iOS
+#endif  // MEDIAPIPE_TFLITE_METAL_INFERENCE
 
 namespace {
-
 constexpr int kNumInputTensorsWithAnchors = 3;
 constexpr int kNumCoordsPerBox = 4;
 
+constexpr char kTensorsTag[] = "TENSORS";
+constexpr char kTensorsGpuTag[] = "TENSORS_GPU";
 }  // namespace
 
 namespace mediapipe {
 
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
 using ::tflite::gpu::gl::CreateReadWriteShaderStorageBuffer;
 using ::tflite::gpu::gl::GlShader;
-#endif
-
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
-typedef ::tflite::gpu::gl::GlBuffer GpuTensor;
 typedef ::tflite::gpu::gl::GlProgram GpuProgram;
-#elif defined(MEDIAPIPE_IOS)
-typedef id<MTLBuffer> GpuTensor;
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
 typedef id<MTLComputePipelineState> GpuProgram;
-#endif
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
 namespace {
 
-#if !defined(MEDIAPIPE_DISABLE_GPU) && !defined(__EMSCRIPTEN__)
+#if MEDIAPIPE_TFLITE_GPU_SUPPORTED
 struct GPUData {
   GpuProgram decode_program;
   GpuProgram score_program;
@@ -80,7 +76,7 @@ struct GPUData {
   GpuTensor scored_boxes_buffer;
   GpuTensor raw_scores_buffer;
 };
-#endif
+#endif  // MEDIAPIPE_TFLITE_GPU_SUPPORTED
 
 void ConvertRawValuesToAnchors(const float* raw_anchors, int num_boxes,
                                std::vector<Anchor>* anchors) {
@@ -99,7 +95,7 @@ void ConvertAnchorsToRawValues(const std::vector<Anchor>& anchors,
                                int num_boxes, float* raw_anchors) {
   CHECK_EQ(anchors.size(), num_boxes);
   int box = 0;
-  for (auto anchor : anchors) {
+  for (const auto& anchor : anchors) {
     raw_anchors[box * kNumCoordsPerBox + 0] = anchor.y_center();
     raw_anchors[box * kNumCoordsPerBox + 1] = anchor.x_center();
     raw_anchors[box * kNumCoordsPerBox + 2] = anchor.h();
@@ -147,24 +143,24 @@ void ConvertAnchorsToRawValues(const std::vector<Anchor>& anchors,
 // }
 class TfLiteTensorsToDetectionsCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static mediapipe::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-  ::mediapipe::Status Close(CalculatorContext* cc) override;
+  mediapipe::Status Open(CalculatorContext* cc) override;
+  mediapipe::Status Process(CalculatorContext* cc) override;
+  mediapipe::Status Close(CalculatorContext* cc) override;
 
  private:
-  ::mediapipe::Status ProcessCPU(CalculatorContext* cc,
-                                 std::vector<Detection>* output_detections);
-  ::mediapipe::Status ProcessGPU(CalculatorContext* cc,
-                                 std::vector<Detection>* output_detections);
+  mediapipe::Status ProcessCPU(CalculatorContext* cc,
+                               std::vector<Detection>* output_detections);
+  mediapipe::Status ProcessGPU(CalculatorContext* cc,
+                               std::vector<Detection>* output_detections);
 
-  ::mediapipe::Status LoadOptions(CalculatorContext* cc);
-  ::mediapipe::Status GpuInit(CalculatorContext* cc);
-  ::mediapipe::Status DecodeBoxes(const float* raw_boxes,
-                                  const std::vector<Anchor>& anchors,
-                                  std::vector<float>* boxes);
-  ::mediapipe::Status ConvertToDetections(
+  mediapipe::Status LoadOptions(CalculatorContext* cc);
+  mediapipe::Status GpuInit(CalculatorContext* cc);
+  mediapipe::Status DecodeBoxes(const float* raw_boxes,
+                                const std::vector<Anchor>& anchors,
+                                std::vector<float>* boxes);
+  mediapipe::Status ConvertToDetections(
       const float* detection_boxes, const float* detection_scores,
       const int* detection_classes, std::vector<Detection>* output_detections);
   Detection ConvertToDetection(float box_ymin, float box_xmin, float box_ymax,
@@ -180,36 +176,34 @@ class TfLiteTensorsToDetectionsCalculator : public CalculatorBase {
   std::vector<Anchor> anchors_;
   bool side_packet_anchors_{};
 
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
   mediapipe::GlCalculatorHelper gpu_helper_;
   std::unique_ptr<GPUData> gpu_data_;
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
   MPPMetalHelper* gpu_helper_ = nullptr;
   std::unique_ptr<GPUData> gpu_data_;
-#endif
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
   bool gpu_input_ = false;
   bool anchors_init_ = false;
 };
 REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::GetContract(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::GetContract(
     CalculatorContract* cc) {
   RET_CHECK(!cc->Inputs().GetTags().empty());
   RET_CHECK(!cc->Outputs().GetTags().empty());
 
   bool use_gpu = false;
 
-  if (cc->Inputs().HasTag("TENSORS")) {
-    cc->Inputs().Tag("TENSORS").Set<std::vector<TfLiteTensor>>();
+  if (cc->Inputs().HasTag(kTensorsTag)) {
+    cc->Inputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensor>>();
   }
 
-#if !defined(MEDIAPIPE_DISABLE_GPU) && !defined(__EMSCRIPTEN__)
-  if (cc->Inputs().HasTag("TENSORS_GPU")) {
-    cc->Inputs().Tag("TENSORS_GPU").Set<std::vector<GpuTensor>>();
+  if (cc->Inputs().HasTag(kTensorsGpuTag)) {
+    cc->Inputs().Tag(kTensorsGpuTag).Set<std::vector<GpuTensor>>();
     use_gpu |= true;
   }
-#endif  //  !MEDIAPIPE_DISABLE_GPU
 
   if (cc->Outputs().HasTag("DETECTIONS")) {
     cc->Outputs().Tag("DETECTIONS").Set<std::vector<Detection>>();
@@ -222,28 +216,28 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
   }
 
   if (use_gpu) {
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
     MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
     MP_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
-#endif
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::Open(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::Open(
     CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
-  if (cc->Inputs().HasTag("TENSORS_GPU")) {
+  if (cc->Inputs().HasTag(kTensorsGpuTag)) {
     gpu_input_ = true;
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
     MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
     gpu_helper_ = [[MPPMetalHelper alloc] initWithCalculatorContext:cc];
     RET_CHECK(gpu_helper_);
-#endif
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
   MP_RETURN_IF_ERROR(LoadOptions(cc));
@@ -253,14 +247,14 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
     MP_RETURN_IF_ERROR(GpuInit(cc));
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::Process(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::Process(
     CalculatorContext* cc) {
-  if ((!gpu_input_ && cc->Inputs().Tag("TENSORS").IsEmpty()) ||
-      (gpu_input_ && cc->Inputs().Tag("TENSORS_GPU").IsEmpty())) {
-    return ::mediapipe::OkStatus();
+  if ((!gpu_input_ && cc->Inputs().Tag(kTensorsTag).IsEmpty()) ||
+      (gpu_input_ && cc->Inputs().Tag(kTensorsGpuTag).IsEmpty())) {
+    return mediapipe::OkStatus();
   }
 
   auto output_detections = absl::make_unique<std::vector<Detection>>();
@@ -278,13 +272,13 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
         .Add(output_detections.release(), cc->InputTimestamp());
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
     CalculatorContext* cc, std::vector<Detection>* output_detections) {
   const auto& input_tensors =
-      cc->Inputs().Tag("TENSORS").Get<std::vector<TfLiteTensor>>();
+      cc->Inputs().Tag(kTensorsTag).Get<std::vector<TfLiteTensor>>();
 
   if (input_tensors.size() == 2 ||
       input_tensors.size() == kNumInputTensorsWithAnchors) {
@@ -319,7 +313,7 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
         anchors_ =
             cc->InputSidePackets().Tag("ANCHORS").Get<std::vector<Anchor>>();
       } else {
-        return ::mediapipe::UnavailableError("No anchor data available.");
+        return mediapipe::UnavailableError("No anchor data available.");
       }
       anchors_init_ = true;
     }
@@ -396,21 +390,23 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
                                            detection_classes.data(),
                                            output_detections));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
     CalculatorContext* cc, std::vector<Detection>* output_detections) {
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
   const auto& input_tensors =
-      cc->Inputs().Tag("TENSORS_GPU").Get<std::vector<GpuTensor>>();
+      cc->Inputs().Tag(kTensorsGpuTag).Get<std::vector<GpuTensor>>();
   RET_CHECK_GE(input_tensors.size(), 2);
 
   MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, &input_tensors, &cc,
                                                  &output_detections]()
-                                                    -> ::mediapipe::Status {
+                                                    -> mediapipe::Status {
     // Copy inputs.
-    RET_CHECK_CALL(CopyBuffer(input_tensors[0], gpu_data_->raw_boxes_buffer));
-    RET_CHECK_CALL(CopyBuffer(input_tensors[1], gpu_data_->raw_scores_buffer));
+    MP_RETURN_IF_ERROR(
+        CopyBuffer(input_tensors[0], gpu_data_->raw_boxes_buffer));
+    MP_RETURN_IF_ERROR(
+        CopyBuffer(input_tensors[1], gpu_data_->raw_scores_buffer));
     if (!anchors_init_) {
       if (side_packet_anchors_) {
         CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
@@ -418,11 +414,11 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
             cc->InputSidePackets().Tag("ANCHORS").Get<std::vector<Anchor>>();
         std::vector<float> raw_anchors(num_boxes_ * kNumCoordsPerBox);
         ConvertAnchorsToRawValues(anchors, num_boxes_, raw_anchors.data());
-        RET_CHECK_CALL(gpu_data_->raw_anchors_buffer.Write<float>(
+        MP_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.Write<float>(
             absl::MakeSpan(raw_anchors)));
       } else {
         CHECK_EQ(input_tensors.size(), kNumInputTensorsWithAnchors);
-        RET_CHECK_CALL(
+        MP_RETURN_IF_ERROR(
             CopyBuffer(input_tensors[2], gpu_data_->raw_anchors_buffer));
       }
       anchors_init_ = true;
@@ -430,23 +426,24 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
 
     // Run shaders.
     // Decode boxes.
-    RET_CHECK_CALL(gpu_data_->decoded_boxes_buffer.BindToIndex(0));
-    RET_CHECK_CALL(gpu_data_->raw_boxes_buffer.BindToIndex(1));
-    RET_CHECK_CALL(gpu_data_->raw_anchors_buffer.BindToIndex(2));
+    MP_RETURN_IF_ERROR(gpu_data_->decoded_boxes_buffer.BindToIndex(0));
+    MP_RETURN_IF_ERROR(gpu_data_->raw_boxes_buffer.BindToIndex(1));
+    MP_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.BindToIndex(2));
     const tflite::gpu::uint3 decode_workgroups = {num_boxes_, 1, 1};
-    RET_CHECK_CALL(gpu_data_->decode_program.Dispatch(decode_workgroups));
+    MP_RETURN_IF_ERROR(gpu_data_->decode_program.Dispatch(decode_workgroups));
 
     // Score boxes.
-    RET_CHECK_CALL(gpu_data_->scored_boxes_buffer.BindToIndex(0));
-    RET_CHECK_CALL(gpu_data_->raw_scores_buffer.BindToIndex(1));
+    MP_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.BindToIndex(0));
+    MP_RETURN_IF_ERROR(gpu_data_->raw_scores_buffer.BindToIndex(1));
     const tflite::gpu::uint3 score_workgroups = {num_boxes_, 1, 1};
-    RET_CHECK_CALL(gpu_data_->score_program.Dispatch(score_workgroups));
+    MP_RETURN_IF_ERROR(gpu_data_->score_program.Dispatch(score_workgroups));
 
     // Copy decoded boxes from GPU to CPU.
     std::vector<float> boxes(num_boxes_ * num_coords_);
-    RET_CHECK_CALL(gpu_data_->decoded_boxes_buffer.Read(absl::MakeSpan(boxes)));
+    MP_RETURN_IF_ERROR(
+        gpu_data_->decoded_boxes_buffer.Read(absl::MakeSpan(boxes)));
     std::vector<float> score_class_id_pairs(num_boxes_ * 2);
-    RET_CHECK_CALL(gpu_data_->scored_boxes_buffer.Read(
+    MP_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.Read(
         absl::MakeSpan(score_class_id_pairs)));
 
     // TODO: b/138851969. Is it possible to output a float vector
@@ -461,22 +458,22 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
         ConvertToDetections(boxes.data(), detection_scores.data(),
                             detection_classes.data(), output_detections));
 
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }));
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
 
   const auto& input_tensors =
-      cc->Inputs().Tag("TENSORS_GPU").Get<std::vector<GpuTensor>>();
+      cc->Inputs().Tag(kTensorsGpuTag).Get<std::vector<GpuTensor>>();
   RET_CHECK_GE(input_tensors.size(), 2);
 
   // Copy inputs.
   [MPPMetalUtil blitMetalBufferTo:gpu_data_->raw_boxes_buffer
                              from:input_tensors[0]
-                         blocking:true
+                         blocking:false
                     commandBuffer:[gpu_helper_ commandBuffer]];
   [MPPMetalUtil blitMetalBufferTo:gpu_data_->raw_scores_buffer
                              from:input_tensors[1]
-                         blocking:true
+                         blocking:false
                     commandBuffer:[gpu_helper_ commandBuffer]];
   if (!anchors_init_) {
     if (side_packet_anchors_) {
@@ -491,48 +488,37 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
       RET_CHECK_EQ(input_tensors.size(), kNumInputTensorsWithAnchors);
       [MPPMetalUtil blitMetalBufferTo:gpu_data_->raw_anchors_buffer
                                  from:input_tensors[2]
-                             blocking:true
+                             blocking:false
                         commandBuffer:[gpu_helper_ commandBuffer]];
     }
     anchors_init_ = true;
   }
 
   // Run shaders.
-  {
-    id<MTLCommandBuffer> command_buffer = [gpu_helper_ commandBuffer];
-    command_buffer.label = @"TfLiteDecodeBoxes";
-    id<MTLComputeCommandEncoder> decode_command =
-        [command_buffer computeCommandEncoder];
-    [decode_command setComputePipelineState:gpu_data_->decode_program];
-    [decode_command setBuffer:gpu_data_->decoded_boxes_buffer
-                       offset:0
-                      atIndex:0];
-    [decode_command setBuffer:gpu_data_->raw_boxes_buffer offset:0 atIndex:1];
-    [decode_command setBuffer:gpu_data_->raw_anchors_buffer offset:0 atIndex:2];
-    MTLSize decode_threads_per_group = MTLSizeMake(1, 1, 1);
-    MTLSize decode_threadgroups = MTLSizeMake(num_boxes_, 1, 1);
-    [decode_command dispatchThreadgroups:decode_threadgroups
-                   threadsPerThreadgroup:decode_threads_per_group];
-    [decode_command endEncoding];
-    [command_buffer commit];
-    [command_buffer waitUntilCompleted];
-  }
-  {
-    id<MTLCommandBuffer> command_buffer = [gpu_helper_ commandBuffer];
-    command_buffer.label = @"TfLiteScoreBoxes";
-    id<MTLComputeCommandEncoder> score_command =
-        [command_buffer computeCommandEncoder];
-    [score_command setComputePipelineState:gpu_data_->score_program];
-    [score_command setBuffer:gpu_data_->scored_boxes_buffer offset:0 atIndex:0];
-    [score_command setBuffer:gpu_data_->raw_scores_buffer offset:0 atIndex:1];
-    MTLSize score_threads_per_group = MTLSizeMake(1, num_classes_, 1);
-    MTLSize score_threadgroups = MTLSizeMake(num_boxes_, 1, 1);
-    [score_command dispatchThreadgroups:score_threadgroups
+  id<MTLCommandBuffer> command_buffer = [gpu_helper_ commandBuffer];
+  command_buffer.label = @"TfLiteDecodeAndScoreBoxes";
+  id<MTLComputeCommandEncoder> command_encoder =
+      [command_buffer computeCommandEncoder];
+  [command_encoder setComputePipelineState:gpu_data_->decode_program];
+  [command_encoder setBuffer:gpu_data_->decoded_boxes_buffer
+                      offset:0
+                     atIndex:0];
+  [command_encoder setBuffer:gpu_data_->raw_boxes_buffer offset:0 atIndex:1];
+  [command_encoder setBuffer:gpu_data_->raw_anchors_buffer offset:0 atIndex:2];
+  MTLSize decode_threads_per_group = MTLSizeMake(1, 1, 1);
+  MTLSize decode_threadgroups = MTLSizeMake(num_boxes_, 1, 1);
+  [command_encoder dispatchThreadgroups:decode_threadgroups
+                  threadsPerThreadgroup:decode_threads_per_group];
+
+  [command_encoder setComputePipelineState:gpu_data_->score_program];
+  [command_encoder setBuffer:gpu_data_->scored_boxes_buffer offset:0 atIndex:0];
+  [command_encoder setBuffer:gpu_data_->raw_scores_buffer offset:0 atIndex:1];
+  MTLSize score_threads_per_group = MTLSizeMake(1, num_classes_, 1);
+  MTLSize score_threadgroups = MTLSizeMake(num_boxes_, 1, 1);
+  [command_encoder dispatchThreadgroups:score_threadgroups
                   threadsPerThreadgroup:score_threads_per_group];
-    [score_command endEncoding];
-    [command_buffer commit];
-    [command_buffer waitUntilCompleted];
-  }
+  [command_encoder endEncoding];
+  [MPPMetalUtil commitCommandBufferAndWait:command_buffer];
 
   // Copy decoded boxes from GPU to CPU.
   std::vector<float> boxes(num_boxes_ * num_coords_);
@@ -556,22 +542,22 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
 
 #else
   LOG(ERROR) << "GPU input on non-Android not supported yet.";
-#endif
-  return ::mediapipe::OkStatus();
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::Close(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::Close(
     CalculatorContext* cc) {
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
   gpu_helper_.RunInGlContext([this] { gpu_data_.reset(); });
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
   gpu_data_.reset();
-#endif
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::LoadOptions(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::LoadOptions(
     CalculatorContext* cc) {
   // Get calculator options specified in the graph.
   options_ =
@@ -593,10 +579,10 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
     ignore_classes_.insert(options_.ignore_classes(i));
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::DecodeBoxes(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::DecodeBoxes(
     const float* raw_boxes, const std::vector<Anchor>& anchors,
     std::vector<float>* boxes) {
   for (int i = 0; i < num_boxes_; ++i) {
@@ -657,10 +643,10 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
     }
   }
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::ConvertToDetections(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::ConvertToDetections(
     const float* detection_boxes, const float* detection_scores,
     const int* detection_classes, std::vector<Detection>* output_detections) {
   for (int i = 0; i < num_boxes_; ++i) {
@@ -673,6 +659,14 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
         detection_boxes[box_offset + 0], detection_boxes[box_offset + 1],
         detection_boxes[box_offset + 2], detection_boxes[box_offset + 3],
         detection_scores[i], detection_classes[i], options_.flip_vertically());
+    const auto& bbox = detection.location_data().relative_bounding_box();
+    if (bbox.width() < 0 || bbox.height() < 0) {
+      // Decoded detection boxes could have negative values for width/height due
+      // to model prediction. Filter out those boxes since some downstream
+      // calculators may assume non-negative values. (b/171391719)
+      continue;
+    }
+
     // Add keypoints.
     if (options_.num_keypoints() > 0) {
       auto* location_data = detection.mutable_location_data();
@@ -690,7 +684,7 @@ REGISTER_CALCULATOR(TfLiteTensorsToDetectionsCalculator);
     }
     output_detections->emplace_back(detection);
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 Detection TfLiteTensorsToDetectionsCalculator::ConvertToDetection(
@@ -713,11 +707,10 @@ Detection TfLiteTensorsToDetectionsCalculator::ConvertToDetection(
   return detection;
 }
 
-::mediapipe::Status TfLiteTensorsToDetectionsCalculator::GpuInit(
+mediapipe::Status TfLiteTensorsToDetectionsCalculator::GpuInit(
     CalculatorContext* cc) {
-#if !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
-  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this]()
-                                                    -> ::mediapipe::Status {
+#if MEDIAPIPE_TFLITE_GL_INFERENCE
+  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this]() -> mediapipe::Status {
     gpu_data_ = absl::make_unique<GPUData>();
 
     // A shader to decode detection boxes.
@@ -818,20 +811,20 @@ void main() {
 
     // Shader program
     GlShader decode_shader;
-    RET_CHECK_CALL(
+    MP_RETURN_IF_ERROR(
         GlShader::CompileShader(GL_COMPUTE_SHADER, decode_src, &decode_shader));
-    RET_CHECK_CALL(GpuProgram::CreateWithShader(decode_shader,
-                                                &gpu_data_->decode_program));
+    MP_RETURN_IF_ERROR(GpuProgram::CreateWithShader(
+        decode_shader, &gpu_data_->decode_program));
     // Outputs
     size_t decoded_boxes_length = num_boxes_ * num_coords_;
-    RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         decoded_boxes_length, &gpu_data_->decoded_boxes_buffer));
     // Inputs
     size_t raw_boxes_length = num_boxes_ * num_coords_;
-    RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_boxes_length, &gpu_data_->raw_boxes_buffer));
     size_t raw_anchors_length = num_boxes_ * kNumCoordsPerBox;
-    RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_anchors_length, &gpu_data_->raw_anchors_buffer));
     // Parameters
     glUseProgram(gpu_data_->decode_program.id());
@@ -912,23 +905,23 @@ void main() {
 
     // Shader program
     GlShader score_shader;
-    RET_CHECK_CALL(
+    MP_RETURN_IF_ERROR(
         GlShader::CompileShader(GL_COMPUTE_SHADER, score_src, &score_shader));
-    RET_CHECK_CALL(
+    MP_RETURN_IF_ERROR(
         GpuProgram::CreateWithShader(score_shader, &gpu_data_->score_program));
     // Outputs
     size_t scored_boxes_length = num_boxes_ * 2;  // score, class
-    RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         scored_boxes_length, &gpu_data_->scored_boxes_buffer));
     // Inputs
     size_t raw_scores_length = num_boxes_ * num_classes_;
-    RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_scores_length, &gpu_data_->raw_scores_buffer));
 
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }));
 
-#elif defined(MEDIAPIPE_IOS)
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
 
   gpu_data_ = absl::make_unique<GPUData>();
   id<MTLDevice> device = gpu_helper_.mtlDevice;
@@ -1158,9 +1151,9 @@ kernel void scoreKernel(
     CHECK_LT(num_classes_, max_wg_size) << "# classes must be <" << max_wg_size;
   }
 
-#endif  // !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

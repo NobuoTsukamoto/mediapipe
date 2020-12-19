@@ -26,8 +26,12 @@ namespace {
 
 float CalculateScale(float min_scale, float max_scale, int stride_index,
                      int num_strides) {
-  return min_scale +
-         (max_scale - min_scale) * 1.0 * stride_index / (num_strides - 1.0f);
+  if (num_strides == 1) {
+    return (min_scale + max_scale) * 0.5f;
+  } else {
+    return min_scale +
+           (max_scale - min_scale) * 1.0 * stride_index / (num_strides - 1.0f);
+  }
 }
 
 }  // namespace
@@ -67,12 +71,12 @@ float CalculateScale(float min_scale, float max_scale, int stride_index,
 // }
 class SsdAnchorsCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
     cc->OutputSidePackets().Index(0).Set<std::vector<Anchor>>();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  mediapipe::Status Open(CalculatorContext* cc) override {
     cc->SetOffset(TimestampDiff(0));
 
     const SsdAnchorsCalculatorOptions& options =
@@ -81,24 +85,24 @@ class SsdAnchorsCalculator : public CalculatorBase {
     auto anchors = absl::make_unique<std::vector<Anchor>>();
     MP_RETURN_IF_ERROR(GenerateAnchors(anchors.get(), options));
     cc->OutputSidePackets().Index(0).Set(Adopt(anchors.release()));
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  mediapipe::Status Process(CalculatorContext* cc) override {
+    return mediapipe::OkStatus();
   }
 
  private:
-  static ::mediapipe::Status GenerateAnchors(
+  static mediapipe::Status GenerateAnchors(
       std::vector<Anchor>* anchors, const SsdAnchorsCalculatorOptions& options);
 };
 REGISTER_CALCULATOR(SsdAnchorsCalculator);
 
-::mediapipe::Status SsdAnchorsCalculator::GenerateAnchors(
+mediapipe::Status SsdAnchorsCalculator::GenerateAnchors(
     std::vector<Anchor>* anchors, const SsdAnchorsCalculatorOptions& options) {
   // Verify the options.
   if (!options.feature_map_height_size() && !options.strides_size()) {
-    return ::mediapipe::InvalidArgumentError(
+    return mediapipe::InvalidArgumentError(
         "Both feature map shape and strides are missing. Must provide either "
         "one.");
   }
@@ -114,7 +118,7 @@ REGISTER_CALCULATOR(SsdAnchorsCalculator);
   }
 
   int layer_id = 0;
-  while (layer_id < options.strides_size()) {
+  while (layer_id < options.num_layers()) {
     std::vector<float> anchor_height;
     std::vector<float> anchor_width;
     std::vector<float> aspect_ratios;
@@ -202,7 +206,7 @@ REGISTER_CALCULATOR(SsdAnchorsCalculator);
     }
     layer_id = last_same_stride_layer;
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 }  // namespace mediapipe

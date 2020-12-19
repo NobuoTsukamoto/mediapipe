@@ -15,8 +15,11 @@
 #include "mediapipe/framework/tool/subgraph_expansion.h"
 
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -32,13 +35,14 @@
 #include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/framework/status_handler.pb.h"
 #include "mediapipe/framework/subgraph.h"
+#include "mediapipe/framework/tool/name_util.h"
 #include "mediapipe/framework/tool/tag_map.h"
 
 namespace mediapipe {
 
 namespace tool {
 
-::mediapipe::Status TransformStreamNames(
+mediapipe::Status TransformStreamNames(
     proto_ns::RepeatedPtrField<ProtoString>* streams,
     const std::function<std::string(absl::string_view)>& transform) {
   for (auto& stream : *streams) {
@@ -49,35 +53,41 @@ namespace tool {
         absl::StrCat(port_and_name.substr(0, name_pos),
                      transform(absl::ClippedSubstr(port_and_name, name_pos)));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 // Returns subgraph streams not requested by a subgraph-node.
-::mediapipe::Status FindIgnoredStreams(
+mediapipe::Status FindIgnoredStreams(
     const proto_ns::RepeatedPtrField<ProtoString>& src_streams,
     const proto_ns::RepeatedPtrField<ProtoString>& dst_streams,
     std::set<std::string>* result) {
   ASSIGN_OR_RETURN(auto src_map, tool::TagMap::Create(src_streams));
   ASSIGN_OR_RETURN(auto dst_map, tool::TagMap::Create(dst_streams));
-  std::set_difference(src_map->Names().begin(), src_map->Names().end(),
-                      dst_map->Names().begin(), dst_map->Names().end(),
-                      std::inserter(*result, result->begin()));
-  return ::mediapipe::OkStatus();
+  for (auto id = src_map->BeginId(); id < src_map->EndId(); ++id) {
+    std::pair<std::string, int> tag_index = src_map->TagAndIndexFromId(id);
+    if (!dst_map->GetId(tag_index.first, tag_index.second).IsValid()) {
+      result->insert(src_map->Names()[id.value()]);
+    }
+  }
+  return mediapipe::OkStatus();
 }
 
 // Removes subgraph streams not requested by a subgraph-node.
-::mediapipe::Status RemoveIgnoredStreams(
+mediapipe::Status RemoveIgnoredStreams(
     proto_ns::RepeatedPtrField<ProtoString>* streams,
     const std::set<std::string>& missing_streams) {
   for (int i = streams->size() - 1; i >= 0; --i) {
-    if (missing_streams.count(streams->Get(i)) > 0) {
+    std::string tag, name;
+    int index;
+    MP_RETURN_IF_ERROR(ParseTagIndexName(streams->Get(i), &tag, &index, &name));
+    if (missing_streams.count(name) > 0) {
       streams->DeleteSubrange(i, 1);
     }
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status TransformNames(
+mediapipe::Status TransformNames(
     CalculatorGraphConfig* config,
     const std::function<std::string(absl::string_view)>& transform) {
   RET_CHECK_EQ(config->packet_factory().size(), 0);
@@ -87,15 +97,19 @@ namespace tool {
         config->mutable_output_side_packet()}) {
     MP_RETURN_IF_ERROR(TransformStreamNames(streams, transform));
   }
+  std::vector<std::string> node_names(config->node_size());
+  for (int node_id = 0; node_id < config->node_size(); ++node_id) {
+    node_names[node_id] = CanonicalNodeName(*config, node_id);
+  }
+  for (int node_id = 0; node_id < config->node_size(); ++node_id) {
+    config->mutable_node(node_id)->set_name(transform(node_names[node_id]));
+  }
   for (auto& node : *config->mutable_node()) {
     for (auto* streams :
          {node.mutable_input_stream(), node.mutable_output_stream(),
           node.mutable_input_side_packet(),
           node.mutable_output_side_packet()}) {
       MP_RETURN_IF_ERROR(TransformStreamNames(streams, transform));
-    }
-    if (!node.name().empty()) {
-      node.set_name(transform(node.name()));
     }
   }
   for (auto& generator : *config->mutable_packet_generator()) {
@@ -108,50 +122,47 @@ namespace tool {
     MP_RETURN_IF_ERROR(TransformStreamNames(
         status_handler.mutable_input_side_packet(), transform));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 // Adds a prefix to the name of each stream, side packet and node in the
-// config. Each call to this method should use a different subgraph_index
-// to produce a different numerical prefix. For example:
-//   1, { foo, bar }  --PrefixNames-> { __sg_1_foo, __sg_1_bar }
-//   2, { foo, bar }  --PrefixNames-> { __sg_2_foo, __sg_2_bar }
+// config. Each call to this method should use a different prefix. For example:
+//   1, { foo, bar }  --PrefixNames-> { qsg__foo, qsg__bar }
+//   2, { foo, bar }  --PrefixNames-> { rsg__foo, rsg__bar }
 // This means that two copies of the same subgraph will not interfere with
 // each other.
-static ::mediapipe::Status PrefixNames(int subgraph_index,
-                                       CalculatorGraphConfig* config) {
-  // TODO: prefix with subgraph name instead (see cl/157677233
-  // discussion).
-  // TODO: since we expand nested subgraphs outside-in, we should
-  // append the prefix to the existing prefix, if any. This is unimportant
-  // with the meaningless prefix we use now, but it should be considered
-  // when prefixing with names.
-  std::string prefix = absl::StrCat("__sg", subgraph_index, "_");
+static mediapipe::Status PrefixNames(std::string prefix,
+                                     CalculatorGraphConfig* config) {
+  std::transform(prefix.begin(), prefix.end(), prefix.begin(), ::tolower);
+  std::replace(prefix.begin(), prefix.end(), '.', '_');
+  std::replace(prefix.begin(), prefix.end(), ' ', '_');
+  std::replace(prefix.begin(), prefix.end(), ':', '_');
+  absl::StrAppend(&prefix, "__");
   auto add_prefix = [&prefix](absl::string_view s) {
     return absl::StrCat(prefix, s);
   };
   return TransformNames(config, add_prefix);
 }
 
-::mediapipe::Status FindCorrespondingStreams(
+mediapipe::Status FindCorrespondingStreams(
     std::map<std::string, std::string>* stream_map,
     const proto_ns::RepeatedPtrField<ProtoString>& src_streams,
     const proto_ns::RepeatedPtrField<ProtoString>& dst_streams) {
   ASSIGN_OR_RETURN(auto src_map, tool::TagMap::Create(src_streams));
   ASSIGN_OR_RETURN(auto dst_map, tool::TagMap::Create(dst_streams));
-  for (auto it : dst_map->Mapping()) {
+  for (const auto& it : dst_map->Mapping()) {
     const std::string& tag = it.first;
     const TagMap::TagData* src_tag_data =
-        ::mediapipe::FindOrNull(src_map->Mapping(), tag);
+        mediapipe::FindOrNull(src_map->Mapping(), tag);
     if (!src_tag_data) {
-      return ::mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
+      return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
              << "Tag \"" << tag << "\" does not exist in the subgraph config.";
     }
     const TagMap::TagData& dst_tag_data = it.second;
     CollectionItemId src_id = src_tag_data->id;
     CollectionItemId dst_id = dst_tag_data.id;
     if (dst_tag_data.count > src_tag_data->count) {
-      return ::mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
+      return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
              << "Tag \"" << tag << "\" has " << dst_tag_data.count
              << " indexes in the subgraph node but has only "
              << src_tag_data->count << " indexes in the subgraph config.";
@@ -164,28 +175,28 @@ static ::mediapipe::Status PrefixNames(int subgraph_index,
       (*stream_map)[src_name] = dst_name;
     }
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
 // The following fields can be used in a Node message for a subgraph:
 //   name, calculator, input_stream, output_stream, input_side_packet,
 //   output_side_packet, options.
 // All other fields are only applicable to calculators.
-::mediapipe::Status ValidateSubgraphFields(
+mediapipe::Status ValidateSubgraphFields(
     const CalculatorGraphConfig::Node& subgraph_node) {
   if (subgraph_node.source_layer() || subgraph_node.buffer_size_hint() ||
       subgraph_node.has_input_stream_handler() ||
       subgraph_node.has_output_stream_handler() ||
       subgraph_node.input_stream_info_size() != 0 ||
       !subgraph_node.executor().empty()) {
-    return ::mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
+    return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
            << "Subgraph \"" << subgraph_node.name()
            << "\" has a field that is only applicable to calculators.";
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ConnectSubgraphStreams(
+mediapipe::Status ConnectSubgraphStreams(
     const CalculatorGraphConfig::Node& subgraph_node,
     CalculatorGraphConfig* subgraph_config) {
   std::map<std::string, std::string> stream_map;
@@ -226,7 +237,7 @@ static ::mediapipe::Status PrefixNames(int subgraph_index,
   std::map<std::string, std::string>* name_map;
   auto replace_names = [&name_map](absl::string_view s) {
     std::string original(s);
-    std::string* replacement = ::mediapipe::FindOrNull(*name_map, original);
+    std::string* replacement = mediapipe::FindOrNull(*name_map, original);
     return replacement ? *replacement : original;
   };
   for (auto& node : *subgraph_config->mutable_node()) {
@@ -253,17 +264,20 @@ static ::mediapipe::Status PrefixNames(int subgraph_index,
         generator.mutable_input_side_packet(), replace_names));
     MP_RETURN_IF_ERROR(TransformStreamNames(
         generator.mutable_output_side_packet(), replace_names));
+
+    // Remove input side packets ignored by the subgraph-node.
+    MP_RETURN_IF_ERROR(RemoveIgnoredStreams(
+        generator.mutable_input_side_packet(), ignored_input_side_packets));
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
 }
 
-::mediapipe::Status ExpandSubgraphs(CalculatorGraphConfig* config,
-                                    const GraphRegistry* graph_registry) {
+mediapipe::Status ExpandSubgraphs(CalculatorGraphConfig* config,
+                                  const GraphRegistry* graph_registry) {
   graph_registry =
       graph_registry ? graph_registry : &GraphRegistry::global_graph_registry;
   RET_CHECK(config);
   auto* nodes = config->mutable_node();
-  int subgraph_counter = 0;
   while (1) {
     auto subgraph_nodes_start = std::stable_partition(
         nodes->begin(), nodes->end(),
@@ -275,11 +289,13 @@ static ::mediapipe::Status PrefixNames(int subgraph_index,
     std::vector<CalculatorGraphConfig> subgraphs;
     for (auto it = subgraph_nodes_start; it != nodes->end(); ++it) {
       const auto& node = *it;
+      int node_id = it - nodes->begin();
+      std::string node_name = CanonicalNodeName(*config, node_id);
       MP_RETURN_IF_ERROR(ValidateSubgraphFields(node));
       ASSIGN_OR_RETURN(auto subgraph,
                        graph_registry->CreateByName(config->package(),
                                                     node.calculator(), &node));
-      MP_RETURN_IF_ERROR(PrefixNames(subgraph_counter++, &subgraph));
+      MP_RETURN_IF_ERROR(PrefixNames(node_name, &subgraph));
       MP_RETURN_IF_ERROR(ConnectSubgraphStreams(node, &subgraph));
       subgraphs.push_back(subgraph);
     }
@@ -297,7 +313,27 @@ static ::mediapipe::Status PrefixNames(int subgraph_index,
                     config->mutable_status_handler()));
     }
   }
-  return ::mediapipe::OkStatus();
+  return mediapipe::OkStatus();
+}
+
+CalculatorGraphConfig MakeSingleNodeGraph(CalculatorGraphConfig::Node node) {
+  using RepeatedStringField = proto_ns::RepeatedPtrField<ProtoString>;
+  struct Connections {
+    const RepeatedStringField& node_conns;
+    RepeatedStringField* graph_conns;
+  };
+  CalculatorGraphConfig config;
+  for (const Connections& item : std::vector<Connections>{
+           {node.input_stream(), config.mutable_input_stream()},
+           {node.output_stream(), config.mutable_output_stream()},
+           {node.input_side_packet(), config.mutable_input_side_packet()},
+           {node.output_side_packet(), config.mutable_output_side_packet()}}) {
+    for (const auto& conn : item.node_conns) {
+      *item.graph_conns->Add() = conn;
+    }
+  }
+  *config.add_node() = std::move(node);
+  return config;
 }
 
 }  // namespace tool

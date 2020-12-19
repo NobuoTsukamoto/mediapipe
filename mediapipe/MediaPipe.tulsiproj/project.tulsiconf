@@ -9,16 +9,20 @@
   "packages" : [
     "",
     "mediapipe",
-    "mediapipe/objc",
     "mediapipe/examples/ios",
-    "mediapipe/examples/ios/edgedetectiongpu",
     "mediapipe/examples/ios/facedetectioncpu",
     "mediapipe/examples/ios/facedetectiongpu",
+    "mediapipe/examples/ios/faceeffect",
+    "mediapipe/examples/ios/facemeshgpu",
     "mediapipe/examples/ios/handdetectiongpu",
     "mediapipe/examples/ios/handtrackinggpu",
-    "mediapipe/examples/ios/multihandtrackinggpu",
+    "mediapipe/examples/ios/holistictrackinggpu",
+    "mediapipe/examples/ios/iristrackinggpu",
     "mediapipe/examples/ios/objectdetectioncpu",
-    "mediapipe/examples/ios/objectdetectiongpu"
+    "mediapipe/examples/ios/objectdetectiongpu",
+    "mediapipe/examples/ios/posetrackinggpu",
+    "mediapipe/examples/ios/upperbodyposetrackinggpu",
+    "mediapipe/objc"
   ],
   "projectName" : "Mediapipe",
   "workspaceRoot" : "../.."

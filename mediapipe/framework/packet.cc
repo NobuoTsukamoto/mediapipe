@@ -40,8 +40,27 @@ Packet Create(HolderBase* holder, Timestamp timestamp) {
   return result;
 }
 
+Packet Create(std::shared_ptr<HolderBase> holder, Timestamp timestamp) {
+  Packet result;
+  result.holder_ = std::move(holder);
+  result.timestamp_ = timestamp;
+  return result;
+}
+
 const HolderBase* GetHolder(const Packet& packet) {
   return packet.holder_.get();
+}
+
+mediapipe::StatusOr<Packet> PacketFromDynamicProto(
+    const std::string& type_name, const std::string& serialized) {
+  ASSIGN_OR_RETURN(
+      auto message_holder,
+      packet_internal::MessageHolderRegistry::CreateByName(type_name));
+  auto* message =
+      const_cast<proto_ns::MessageLite*>(message_holder->GetProtoMessageLite());
+  RET_CHECK_NE(message, nullptr);
+  RET_CHECK(message->ParseFromString(serialized));
+  return packet_internal::Create(message_holder.release());
 }
 
 }  // namespace packet_internal
@@ -86,16 +105,16 @@ std::string Packet::DebugString() const {
   return result;
 }
 
-::mediapipe::Status Packet::ValidateAsProtoMessageLite() const {
+mediapipe::Status Packet::ValidateAsProtoMessageLite() const {
   if (ABSL_PREDICT_FALSE(IsEmpty())) {
-    return ::mediapipe::InternalError("Packet is empty.");
+    return mediapipe::InternalError("Packet is empty.");
   }
   if (ABSL_PREDICT_FALSE(holder_->GetProtoMessageLite() == nullptr)) {
-    return ::mediapipe::InvalidArgumentError(
+    return mediapipe::InvalidArgumentError(
         absl::StrCat("The Packet stores \"", holder_->DebugTypeName(), "\"",
                      "which is not convertible to proto_ns::MessageLite."));
   } else {
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 }
 
@@ -110,7 +129,7 @@ const proto_ns::MessageLite& Packet::GetProtoMessageLite() const {
 StatusOr<std::vector<const proto_ns::MessageLite*>>
 Packet::GetVectorOfProtoMessageLitePtrs() {
   if (holder_ == nullptr) {
-    return ::mediapipe::InternalError("Packet is empty.");
+    return mediapipe::InternalError("Packet is empty.");
   }
   return holder_->GetVectorOfProtoMessageLite();
 }

@@ -40,13 +40,13 @@ class OutputStreamManager {
   OutputStreamManager() = default;
 
   // Initializes the OutputStreamManager.
-  ::mediapipe::Status Initialize(const std::string& name,
-                                 const PacketType* packet_type);
+  mediapipe::Status Initialize(const std::string& name,
+                               const PacketType* packet_type);
 
   // Prepares this for processing. If an error occurs in a user called function
   // (such as AddPacket()) then error_callback will be called before returning
   // control to the user.
-  void PrepareForRun(std::function<void(::mediapipe::Status)> error_callback);
+  void PrepareForRun(std::function<void(mediapipe::Status)> error_callback);
 
   // Gets the stream name.
   const std::string& Name() const { return output_stream_spec_.name; }
@@ -118,8 +118,8 @@ class OutputStreamManager {
   std::vector<Mirror> mirrors_;
 
   mutable absl::Mutex stream_mutex_;
-  Timestamp next_timestamp_bound_ GUARDED_BY(stream_mutex_);
-  bool closed_ GUARDED_BY(stream_mutex_);
+  Timestamp next_timestamp_bound_ ABSL_GUARDED_BY(stream_mutex_);
+  bool closed_ ABSL_GUARDED_BY(stream_mutex_);
 };
 
 }  // namespace mediapipe

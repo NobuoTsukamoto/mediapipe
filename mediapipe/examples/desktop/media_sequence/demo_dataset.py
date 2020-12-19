@@ -57,12 +57,13 @@ import random
 import subprocess
 import sys
 import tempfile
-import urllib
 
 from absl import app
 from absl import flags
 from absl import logging
-import tensorflow as tf
+from six.moves import range
+from six.moves import urllib
+import tensorflow.compat.v1 as tf
 
 from mediapipe.util.sequence import media_sequence as ms
 
@@ -156,7 +157,7 @@ class DemoDataset(object):
     all_shards_dataset = tf.data.Dataset.from_tensor_slices(all_shards)
     cycle_length = min(16, len(all_shards))
     dataset = all_shards_dataset.apply(
-        tf.contrib.data.parallel_interleave(
+        tf.data.experimental.parallel_interleave(
             tf.data.TFRecordDataset,
             cycle_length=cycle_length,
             block_length=1,
@@ -198,7 +199,7 @@ class DemoDataset(object):
     if sys.version_info >= (3, 0):
       urlretrieve = urllib.request.urlretrieve
     else:
-      urlretrieve = urllib.urlretrieve
+      urlretrieve = urllib.request.urlretrieve
     for split in SPLITS:
       reader = csv.DictReader(SPLITS[split].split("\n"))
       all_metadata = []

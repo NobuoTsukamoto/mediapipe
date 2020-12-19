@@ -56,7 +56,7 @@ class TimestampAlignInputStreamHandler : public InputStreamHandler {
       std::function<void()> headers_ready_callback,
       std::function<void()> notification_callback,
       std::function<void(CalculatorContext*)> schedule_callback,
-      std::function<void(::mediapipe::Status)> error_callback) override;
+      std::function<void(mediapipe::Status)> error_callback) override;
 
  protected:
   // In TimestampAlignInputStreamHandler, a node is "ready" if:
@@ -79,7 +79,7 @@ class TimestampAlignInputStreamHandler : public InputStreamHandler {
   CollectionItemId timestamp_base_stream_id_;
 
   absl::Mutex mutex_;
-  bool offsets_initialized_ GUARDED_BY(mutex_) = false;
+  bool offsets_initialized_ ABSL_GUARDED_BY(mutex_) = false;
   std::vector<TimestampDiff> timestamp_offsets_;
 };
 REGISTER_INPUT_STREAM_HANDLER(TimestampAlignInputStreamHandler);
@@ -107,7 +107,7 @@ void TimestampAlignInputStreamHandler::PrepareForRun(
     std::function<void()> headers_ready_callback,
     std::function<void()> notification_callback,
     std::function<void(CalculatorContext*)> schedule_callback,
-    std::function<void(::mediapipe::Status)> error_callback) {
+    std::function<void(mediapipe::Status)> error_callback) {
   {
     absl::MutexLock lock(&mutex_);
     offsets_initialized_ = (input_stream_managers_.NumEntries() == 1);

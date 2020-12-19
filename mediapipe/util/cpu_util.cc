@@ -18,6 +18,8 @@
 
 #ifdef __ANDROID__
 #include "ndk/sources/android/cpufeatures/cpu-features.h"
+#elif _WIN32
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -36,12 +38,12 @@ namespace {
 
 constexpr uint32 kBufferLength = 64;
 
-::mediapipe::StatusOr<std::string> GetFilePath(int cpu) {
+mediapipe::StatusOr<std::string> GetFilePath(int cpu) {
   return absl::Substitute(
       "/sys/devices/system/cpu/cpu$0/cpufreq/cpuinfo_max_freq", cpu);
 }
 
-::mediapipe::StatusOr<uint64> GetCpuMaxFrequency(int cpu) {
+mediapipe::StatusOr<uint64> GetCpuMaxFrequency(int cpu) {
   auto path_or_status = GetFilePath(cpu);
   if (!path_or_status.ok()) {
     return path_or_status.status();
@@ -106,6 +108,10 @@ std::set<int> InferLowerOrHigherCoreIds(bool lower) {
 int NumCPUCores() {
 #ifdef __ANDROID__
   return android_getCpuCount();
+#elif _WIN32
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  return sysinfo.dwNumberOfProcessors;
 #else
   return sysconf(_SC_NPROCESSORS_ONLN);
 #endif

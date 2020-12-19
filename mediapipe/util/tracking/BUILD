@@ -15,7 +15,7 @@
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library")
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
 
@@ -115,6 +115,20 @@ proto_library(
     name = "box_tracker_proto",
     srcs = ["box_tracker.proto"],
     deps = [":tracking_proto"],
+)
+
+proto_library(
+    name = "tracked_detection_manager_config_proto",
+    srcs = ["tracked_detection_manager_config.proto"],
+)
+
+proto_library(
+    name = "box_detector_proto",
+    srcs = ["box_detector.proto"],
+    deps = [
+        ":box_tracker_proto",
+        ":region_flow_proto",
+    ],
 )
 
 mediapipe_cc_proto_library(
@@ -245,6 +259,24 @@ mediapipe_cc_proto_library(
     deps = [":box_tracker_proto"],
 )
 
+mediapipe_cc_proto_library(
+    name = "tracked_detection_manager_config_cc_proto",
+    srcs = ["tracked_detection_manager_config.proto"],
+    visibility = ["//visibility:public"],
+    deps = [":tracked_detection_manager_config_proto"],
+)
+
+mediapipe_cc_proto_library(
+    name = "box_detector_cc_proto",
+    srcs = ["box_detector.proto"],
+    cc_deps = [
+        ":box_tracker_cc_proto",
+        ":region_flow_cc_proto",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [":box_detector_proto"],
+)
+
 cc_library(
     name = "motion_models",
     srcs = ["motion_models.cc"],
@@ -286,6 +318,7 @@ cc_library(
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:vector",
+        "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -393,6 +426,7 @@ cc_library(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:vector",
         "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/container:node_hash_set",
         "@com_google_absl//absl/strings",
         "@eigen_archive//:eigen",
     ],
@@ -488,6 +522,7 @@ cc_library(
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:opencv_video",
         "//mediapipe/framework/port:vector",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:node_hash_set",
         "@com_google_absl//absl/memory",
         "@eigen_archive//:eigen",
@@ -586,6 +621,7 @@ cc_library(
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:vector",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
         "@eigen_archive//:eigen",
     ],
@@ -609,6 +645,28 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
+    ],
+)
+
+cc_library(
+    name = "box_detector",
+    srcs = ["box_detector.cc"],
+    hdrs = ["box_detector.h"],
+    deps = [
+        ":box_detector_cc_proto",
+        ":box_tracker",
+        ":box_tracker_cc_proto",
+        ":flow_packager_cc_proto",
+        ":measure_time",
+        ":tracking",
+        "//mediapipe/framework/port:opencv_calib3d",
+        "//mediapipe/framework/port:opencv_core",
+        "//mediapipe/framework/port:opencv_features2d",
+        "//mediapipe/framework/port:opencv_imgproc",
+        "//mediapipe/framework/port:opencv_video",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/synchronization",
     ],
 )
 
@@ -670,6 +728,7 @@ cc_test(
     copts = PARALLEL_COPTS,
     data = ["testdata/stabilize_test.png"],
     linkopts = PARALLEL_LINKOPTS,
+    linkstatic = 1,
     deps = [
         ":region_flow",
         ":region_flow_cc_proto",
@@ -736,6 +795,7 @@ cc_library(
     ],
     deps = [
         ":tracked_detection",
+        ":tracked_detection_manager_config_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
         "@com_google_absl//absl/container:node_hash_map",
     ],

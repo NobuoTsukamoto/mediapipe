@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "asset_manager_util",
@@ -22,20 +22,35 @@ cc_library(
             "asset_manager_util.cc",
         ],
     }),
-    hdrs = [
-        "asset_manager_util.h",
-    ],
+    hdrs = ["asset_manager_util.h"],
     linkopts = select({
         "//conditions:default": [],
         "//mediapipe:android": ["-landroid"],
     }),
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_absl//absl/strings",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:singleton",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:statusor",
         "//mediapipe/util/android/file/base",
-        "@com_google_absl//absl/strings",
+    ] + select({
+        "//conditions:default": [],
+        "//mediapipe:android": [
+            "//mediapipe/java/com/google/mediapipe/framework/jni:jni_util",
+        ],
+    }),
+)
+
+cc_library(
+    name = "logging",
+    hdrs = select({
+        "//conditions:default": [],
+        "//mediapipe:android": ["logging.h"],
+    }),
+    linkopts = [
+        "-landroid",
+        "-llog",
     ],
 )

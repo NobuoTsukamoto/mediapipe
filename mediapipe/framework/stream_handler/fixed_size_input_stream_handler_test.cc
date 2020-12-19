@@ -35,28 +35,28 @@ const int64 kSlowCalculatorRate = 10;
 
 // Rate limiter for TestSlowCalculator.
 ABSL_CONST_INIT absl::Mutex g_source_mutex(absl::kConstInit);
-int64 g_source_counter GUARDED_BY(g_source_mutex);
+int64 g_source_counter ABSL_GUARDED_BY(g_source_mutex);
 
 // Rate limiter for TestSourceCalculator.
-int64 g_slow_counter GUARDED_BY(g_source_mutex);
+int64 g_slow_counter ABSL_GUARDED_BY(g_source_mutex);
 
 // Flag that indicates that the source is done.
-bool g_source_done GUARDED_BY(g_source_mutex);
+bool g_source_done ABSL_GUARDED_BY(g_source_mutex);
 
 class TestSourceCalculator : public CalculatorBase {
  public:
   TestSourceCalculator() : current_packet_id_(0) {}
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
     cc->Outputs().Index(0).Set<int64>();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  mediapipe::Status Open(CalculatorContext* cc) override {
     absl::MutexLock lock(&g_source_mutex);
     g_source_counter = 0;
     g_source_done = false;
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  mediapipe::Status Process(CalculatorContext* cc) override {
     if (current_packet_id_ == kMaxPacketId) {
       absl::MutexLock lock(&g_source_mutex);
       g_source_done = true;
@@ -70,11 +70,11 @@ class TestSourceCalculator : public CalculatorBase {
       g_source_mutex.Await(
           absl::Condition(this, &TestSourceCalculator::CanProceed));
     }
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
  private:
-  bool CanProceed() const EXCLUSIVE_LOCKS_REQUIRED(g_source_mutex) {
+  bool CanProceed() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(g_source_mutex) {
     return g_source_counter <= kSlowCalculatorRate * g_slow_counter ||
            g_source_counter <= 1;
   }
@@ -86,17 +86,17 @@ REGISTER_CALCULATOR(TestSourceCalculator);
 class TestSlowCalculator : public CalculatorBase {
  public:
   TestSlowCalculator() = default;
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static mediapipe::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int64>();
     cc->Outputs().Index(0).Set<int64>();
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  mediapipe::Status Open(CalculatorContext* cc) override {
     absl::MutexLock lock(&g_source_mutex);
     g_slow_counter = 0;
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  mediapipe::Status Process(CalculatorContext* cc) override {
     cc->Outputs().Index(0).Add(new int64(0),
                                cc->Inputs().Index(0).Value().Timestamp());
     {
@@ -105,11 +105,11 @@ class TestSlowCalculator : public CalculatorBase {
       g_source_mutex.Await(
           absl::Condition(this, &TestSlowCalculator::CanProceed));
     }
-    return ::mediapipe::OkStatus();
+    return mediapipe::OkStatus();
   }
 
  private:
-  bool CanProceed() const EXCLUSIVE_LOCKS_REQUIRED(g_source_mutex) {
+  bool CanProceed() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(g_source_mutex) {
     return g_source_counter > kSlowCalculatorRate * g_slow_counter ||
            g_source_done;
   }
@@ -253,7 +253,7 @@ TEST_P(FixedSizeInputStreamHandlerTest, ParallelWriteAndRead) {
   MP_ASSERT_OK(graph.StartRun({}));
 
   {
-    ::mediapipe::ThreadPool pool(3);
+    mediapipe::ThreadPool pool(3);
     pool.StartWorkers();
 
     // Start 3 writers.
