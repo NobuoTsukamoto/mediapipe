@@ -101,8 +101,8 @@ Status OutputStreamShard::AddPacketInternal(T&& packet) {
   }
 
   if (packet.IsEmpty()) {
-    return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
-           << "Empty packet sent to stream \"" << Name() << "\".";
+    SetNextTimestampBound(packet.Timestamp().NextAllowedInStream());
+    return absl::OkStatus();
   }
 
   const Timestamp timestamp = packet.Timestamp();
@@ -128,7 +128,7 @@ Status OutputStreamShard::AddPacketInternal(T&& packet) {
 
   // TODO debug log?
 
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 void OutputStreamShard::AddPacket(const Packet& packet) {

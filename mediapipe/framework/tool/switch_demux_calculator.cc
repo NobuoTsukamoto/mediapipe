@@ -57,10 +57,10 @@ class SwitchDemuxCalculator : public CalculatorBase {
   static constexpr char kEnableTag[] = "ENABLE";
 
  public:
-  static mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  mediapipe::Status Open(CalculatorContext* cc) override;
-  mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
   int channel_index_;
@@ -68,19 +68,13 @@ class SwitchDemuxCalculator : public CalculatorBase {
 };
 REGISTER_CALCULATOR(SwitchDemuxCalculator);
 
-mediapipe::Status SwitchDemuxCalculator::GetContract(CalculatorContract* cc) {
+absl::Status SwitchDemuxCalculator::GetContract(CalculatorContract* cc) {
   // Allow any one of kSelectTag, kEnableTag.
-  if (cc->Inputs().HasTag(kSelectTag)) {
-    cc->Inputs().Tag(kSelectTag).Set<int>();
-  } else if (cc->Inputs().HasTag(kEnableTag)) {
-    cc->Inputs().Tag(kEnableTag).Set<bool>();
-  }
+  cc->Inputs().Tag(kSelectTag).Set<int>().Optional();
+  cc->Inputs().Tag(kEnableTag).Set<bool>().Optional();
   // Allow any one of kSelectTag, kEnableTag.
-  if (cc->InputSidePackets().HasTag(kSelectTag)) {
-    cc->InputSidePackets().Tag(kSelectTag).Set<int>();
-  } else if (cc->InputSidePackets().HasTag(kEnableTag)) {
-    cc->InputSidePackets().Tag(kEnableTag).Set<bool>();
-  }
+  cc->InputSidePackets().Tag(kSelectTag).Set<int>().Optional();
+  cc->InputSidePackets().Tag(kEnableTag).Set<bool>().Optional();
 
   // Set the types for all output channels to corresponding input types.
   std::set<std::string> channel_tags = ChannelTags(cc->Outputs().TagMap());
@@ -121,10 +115,10 @@ mediapipe::Status SwitchDemuxCalculator::GetContract(CalculatorContract* cc) {
   }
   cc->SetInputStreamHandler("ImmediateInputStreamHandler");
   cc->SetProcessTimestampBounds(true);
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-mediapipe::Status SwitchDemuxCalculator::Open(CalculatorContext* cc) {
+absl::Status SwitchDemuxCalculator::Open(CalculatorContext* cc) {
   channel_index_ = tool::GetChannelIndex(*cc, channel_index_);
   channel_tags_ = ChannelTags(cc->Outputs().TagMap());
 
@@ -145,10 +139,10 @@ mediapipe::Status SwitchDemuxCalculator::Open(CalculatorContext* cc) {
       }
     }
   }
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-mediapipe::Status SwitchDemuxCalculator::Process(CalculatorContext* cc) {
+absl::Status SwitchDemuxCalculator::Process(CalculatorContext* cc) {
   // Update the input channel index if specified.
   channel_index_ = tool::GetChannelIndex(*cc, channel_index_);
 
@@ -164,7 +158,7 @@ mediapipe::Status SwitchDemuxCalculator::Process(CalculatorContext* cc) {
       }
     }
   }
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe

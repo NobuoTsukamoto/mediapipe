@@ -345,8 +345,7 @@ TEST(SceneCroppingCalculatorTest, ChecksPriorFrameBufferSize) {
 TEST(SceneCroppingCalculatorTest, ChecksDebugConfigWithoutCroppedFrame) {
   const CalculatorGraphConfig::Node config =
       ParseTextProtoOrDie<CalculatorGraphConfig::Node>(absl::Substitute(
-          kDebugConfigNoCroppedFrame, kTargetWidth, kTargetHeight,
-          kTargetSizeType, 0, kPriorFrameBufferSize));
+          kDebugConfigNoCroppedFrame, kTargetWidth, kTargetHeight));
   auto runner = absl::make_unique<CalculatorRunner>(config);
   const auto status = runner->Run();
   EXPECT_FALSE(status.ok());
@@ -803,6 +802,7 @@ TEST(SceneCroppingCalculatorTest, OutputsCropMessageKinematicPath) {
       SceneCroppingCalculatorOptions::ext);
   auto* kinematic_options =
       options->mutable_camera_motion_options()->mutable_kinematic_options();
+  kinematic_options->set_min_motion_to_reframe(1.2);
   kinematic_options->set_max_velocity(200);
 
   auto runner = absl::make_unique<CalculatorRunner>(config);
@@ -875,6 +875,7 @@ TEST(SceneCroppingCalculatorTest, OutputsCropMessageKinematicPathNoVideo) {
       SceneCroppingCalculatorOptions::ext);
   auto* kinematic_options =
       options->mutable_camera_motion_options()->mutable_kinematic_options();
+  kinematic_options->set_min_motion_to_reframe(1.2);
   kinematic_options->set_max_velocity(2.0);
 
   auto runner = absl::make_unique<CalculatorRunner>(config);

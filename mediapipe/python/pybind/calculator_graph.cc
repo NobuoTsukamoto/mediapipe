@@ -376,7 +376,7 @@ void CalculatorGraphSubmodule(pybind11::module* module) {
   calculator_graph.def(
       "get_combined_error_message",
       [](CalculatorGraph* self) {
-        mediapipe::Status error_status;
+        absl::Status error_status;
         if (self->GetCombinedErrors(&error_status) && !error_status.ok()) {
           return error_status.ToString();
         }
@@ -394,14 +394,15 @@ void CalculatorGraphSubmodule(pybind11::module* module) {
   calculator_graph.def(
       "observe_output_stream",
       [](CalculatorGraph* self, const std::string& stream_name,
-         pybind11::function callback_fn) {
+         pybind11::function callback_fn, bool observe_timestamp_bounds) {
         RaisePyErrorIfNotOk(self->ObserveOutputStream(
-            stream_name, [callback_fn, stream_name](const Packet& packet) {
-              // Acquire a mutex so that only one callback_fn can run at once.
+            stream_name,
+            [callback_fn, stream_name](const Packet& packet) {
               absl::MutexLock lock(&callback_mutex);
               callback_fn(stream_name, packet);
-              return mediapipe::OkStatus();
-            }));
+              return absl::OkStatus();
+            },
+            observe_timestamp_bounds));
       },
       R"doc(Observe the named output stream.
 
@@ -412,6 +413,8 @@ void CalculatorGraphSubmodule(pybind11::module* module) {
     stream_name: The name of the output stream.
     callback_fn: The callback function to invoke on every packet emitted by the
       output stream.
+    observe_timestamp_bounds: If true, emits an empty packet at
+      timestamp_bound -1 when timestamp bound changes.
 
   Raises:
     RuntimeError: If the calculator graph isn't initialized or the stream
@@ -423,7 +426,9 @@ void CalculatorGraphSubmodule(pybind11::module* module) {
     graph.observe_output_stream('out',
                                 lambda stream_name, packet: out.append(packet))
 
-)doc");
+)doc",
+      py::arg("stream_name"), py::arg("callback_fn"),
+      py::arg("observe_timestamp_bounds") = false);
 
   calculator_graph.def(
       "close",
@@ -438,7 +443,7 @@ void CalculatorGraphSubmodule(pybind11::module* module) {
       [](CalculatorGraph* self, const std::string& packet_name) {
         auto status_or_packet = self->GetOutputSidePacket(packet_name);
         RaisePyErrorIfNotOk(status_or_packet.status());
-        return status_or_packet.ValueOrDie();
+        return status_or_packet.value();
       },
       R"doc(Get output side packet by name after the graph is done.
 

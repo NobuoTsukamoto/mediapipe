@@ -13,8 +13,9 @@
 # limitations under the License.
 """Tests for mediapipe.python.solutions.pose."""
 
-import math
 import os
+import tempfile  # pylint: disable=unused-import
+from typing import NamedTuple
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -23,120 +24,110 @@ import numpy as np
 import numpy.testing as npt
 
 # resources dependency
+# undeclared dependency
+from mediapipe.python.solutions import drawing_utils as mp_drawing
 from mediapipe.python.solutions import holistic as mp_holistic
 
 TEST_IMAGE_PATH = 'mediapipe/python/solutions/testdata'
-POSE_DIFF_THRESHOLOD = 30  # pixels
-HAND_DIFF_THRESHOLOD = 10  # pixels
-EXPECTED_POSE_COORDINATES_PREDICTION = [[593, 645], [593, 626], [599, 621],
-                                        [605, 617], [575, 637], [569, 640],
-                                        [563, 643], [621, 616], [565, 652],
-                                        [617, 652], [595, 667], [714, 662],
-                                        [567, 749], [792, 559], [497, 844],
-                                        [844, 435], [407, 906], [866, 403],
-                                        [381, 921], [859, 392], [366, 922],
-                                        [850, 405], [381, 918], [707, 948],
-                                        [631, 940], [582, 1122], [599, 1097],
-                                        [495, 1277], [641, 1239], [485, 1300],
-                                        [658, 1257], [453, 1332], [626, 1308]]
-EXPECTED_LEFT_HAND_COORDINATES_PREDICTION = [[843, 404], [862, 395], [876, 383],
-                                             [887, 369], [896, 359], [854, 367],
-                                             [868, 347], [879, 346], [885, 349],
-                                             [843, 362], [859, 341], [871, 340],
-                                             [878, 344], [837, 361], [849, 341],
-                                             [859, 338], [867, 339], [834, 361],
-                                             [841, 346], [848, 342], [854, 341]]
-EXPECTED_RIGHT_HAND_COORDINATES_PREDICTION = [[391, 934], [371,
-                                                           930], [354, 930],
-                                              [340, 934], [328,
-                                                           939], [350, 938],
-                                              [339, 946], [347,
-                                                           951], [355, 952],
-                                              [356, 946], [346,
-                                                           955], [358, 956],
-                                              [366, 953], [361,
-                                                           952], [354, 959],
-                                              [364, 958], [372,
-                                                           954], [366, 957],
-                                              [359, 963], [364, 962],
-                                              [368, 960]]
+POSE_DIFF_THRESHOLD = 30  # pixels
+HAND_DIFF_THRESHOLD = 30  # pixels
+EXPECTED_POSE_LANDMARKS = np.array([[782, 243], [791, 232], [796, 233],
+                                    [801, 233], [773, 231], [766, 231],
+                                    [759, 232], [802, 242], [751, 239],
+                                    [791, 258], [766, 258], [830, 301],
+                                    [708, 298], [910, 248], [635, 234],
+                                    [954, 161], [593, 136], [961, 137],
+                                    [583, 110], [952, 132], [592, 106],
+                                    [950, 141], [596, 115], [793, 500],
+                                    [724, 502], [874, 626], [640, 629],
+                                    [965, 756], [542, 760], [962, 779],
+                                    [533, 781], [1025, 797], [487, 803]])
+EXPECTED_LEFT_HAND_LANDMARKS = np.array([[958, 167], [950, 161], [945, 151],
+                                         [945, 141], [947, 134], [945, 136],
+                                         [939, 122], [935, 113], [931, 106],
+                                         [951, 134], [946, 118], [942, 108],
+                                         [938, 100], [957, 135], [954, 120],
+                                         [951, 111], [948, 103], [964, 138],
+                                         [964, 128], [965, 122], [965, 117]])
+EXPECTED_RIGHT_HAND_LANDMARKS = np.array([[590, 135], [602, 125], [609, 114],
+                                          [613, 103], [617, 96], [596, 100],
+                                          [595, 84], [594, 74], [593, 68],
+                                          [588, 100], [586, 84], [585, 73],
+                                          [584, 65], [581, 103], [579, 89],
+                                          [579, 79], [579, 72], [575, 109],
+                                          [571, 99], [570, 93], [569, 87]])
 
 
 class PoseTest(parameterized.TestCase):
 
-  def _verify_output_landmarks(self, landmark_list, image_shape, num_landmarks,
-                               expected_results, diff_thresholds):
-    self.assertLen(landmark_list.landmark, num_landmarks)
-    image_rows, image_cols, _ = image_shape
-    pose_coordinates = [(math.floor(landmark.x * image_cols),
-                         math.floor(landmark.y * image_rows))
-                        for landmark in landmark_list.landmark]
-    prediction_error = np.abs(
-        np.asarray(pose_coordinates) -
-        np.asarray(expected_results[:num_landmarks]))
-    npt.assert_array_less(prediction_error, diff_thresholds)
+  def _landmarks_list_to_array(self, landmark_list, image_shape):
+    rows, cols, _ = image_shape
+    return np.asarray([(lmk.x * cols, lmk.y * rows)
+                       for lmk in landmark_list.landmark])
+
+  def _assert_diff_less(self, array1, array2, threshold):
+    npt.assert_array_less(np.abs(array1 - array2), threshold)
+
+  def _annotate(self, frame: np.ndarray, results: NamedTuple, idx: int):
+    drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
+    mp_drawing.draw_landmarks(
+        image=frame,
+        landmark_list=results.face_landmarks,
+        landmark_drawing_spec=drawing_spec)
+    mp_drawing.draw_landmarks(frame, results.left_hand_landmarks,
+                              mp_holistic.HAND_CONNECTIONS)
+    mp_drawing.draw_landmarks(frame, results.right_hand_landmarks,
+                              mp_holistic.HAND_CONNECTIONS)
+    mp_drawing.draw_landmarks(frame, results.pose_landmarks,
+                              mp_holistic.POSE_CONNECTIONS)
+    path = os.path.join(tempfile.gettempdir(), self.id().split('.')[-1] +
+                                              '_frame_{}.png'.format(idx))
+    cv2.imwrite(path, frame)
 
   def test_invalid_image_shape(self):
-    holistic = mp_holistic.Holistic()
-    with self.assertRaisesRegex(
-        ValueError, 'Input image must contain three channel rgb data.'):
-      holistic.process(np.arange(36, dtype=np.uint8).reshape(3, 3, 4))
+    with mp_holistic.Holistic() as holistic:
+      with self.assertRaisesRegex(
+          ValueError, 'Input image must contain three channel rgb data.'):
+        holistic.process(np.arange(36, dtype=np.uint8).reshape(3, 3, 4))
 
   def test_blank_image(self):
-    holistic = mp_holistic.Holistic()
-    image = np.zeros([100, 100, 3], dtype=np.uint8)
-    image.fill(255)
-    results = holistic.process(image)
-    self.assertIsNone(results.pose_landmarks)
-    holistic.close()
+    with mp_holistic.Holistic() as holistic:
+      image = np.zeros([100, 100, 3], dtype=np.uint8)
+      image.fill(255)
+      results = holistic.process(image)
+      self.assertIsNone(results.pose_landmarks)
 
-  @parameterized.named_parameters(('static_image_mode', True, 3),
-                                  ('video_mode', False, 3))
-  def test_upper_body_model(self, static_image_mode, num_frames):
-    image_path = os.path.join(os.path.dirname(__file__), 'testdata/pose.jpg')
-    holistic = mp_holistic.Holistic(
-        static_image_mode=static_image_mode, upper_body_only=True)
+  @parameterized.named_parameters(('static_lite', True, 0, 3),
+                                  ('static_full', True, 1, 3),
+                                  ('static_heavy', True, 2, 3),
+                                  ('video_lite', False, 0, 3),
+                                  ('video_full', False, 1, 3),
+                                  ('video_heavy', False, 2, 3))
+  def test_on_image(self, static_image_mode, model_complexity, num_frames):
+    image_path = os.path.join(os.path.dirname(__file__),
+                              'testdata/holistic.jpg')
     image = cv2.imread(image_path)
-    for _ in range(num_frames):
-      results = holistic.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-      self._verify_output_landmarks(results.pose_landmarks, image.shape, 25,
-                                    EXPECTED_POSE_COORDINATES_PREDICTION,
-                                    POSE_DIFF_THRESHOLOD)
-      self._verify_output_landmarks(results.left_hand_landmarks, image.shape,
-                                    21,
-                                    EXPECTED_LEFT_HAND_COORDINATES_PREDICTION,
-                                    HAND_DIFF_THRESHOLOD)
-      self._verify_output_landmarks(results.right_hand_landmarks, image.shape,
-                                    21,
-                                    EXPECTED_RIGHT_HAND_COORDINATES_PREDICTION,
-                                    HAND_DIFF_THRESHOLOD)
-      # TODO: Verify the correctness of the face landmarks.
-      self.assertLen(results.face_landmarks.landmark, 468)
-    holistic.close()
-
-  @parameterized.named_parameters(('static_image_mode', True, 3),
-                                  ('video_mode', False, 3))
-  def test_full_body_model(self, static_image_mode, num_frames):
-    image_path = os.path.join(os.path.dirname(__file__), 'testdata/pose.jpg')
-    holistic = mp_holistic.Holistic(static_image_mode=static_image_mode)
-    image = cv2.imread(image_path)
-
-    for _ in range(num_frames):
-      results = holistic.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-      self._verify_output_landmarks(results.pose_landmarks, image.shape, 33,
-                                    EXPECTED_POSE_COORDINATES_PREDICTION,
-                                    POSE_DIFF_THRESHOLOD)
-      self._verify_output_landmarks(results.left_hand_landmarks, image.shape,
-                                    21,
-                                    EXPECTED_LEFT_HAND_COORDINATES_PREDICTION,
-                                    HAND_DIFF_THRESHOLOD)
-      self._verify_output_landmarks(results.right_hand_landmarks, image.shape,
-                                    21,
-                                    EXPECTED_RIGHT_HAND_COORDINATES_PREDICTION,
-                                    HAND_DIFF_THRESHOLOD)
-      # TODO: Verify the correctness of the face landmarks.
-      self.assertLen(results.face_landmarks.landmark, 468)
-    holistic.close()
+    with mp_holistic.Holistic(static_image_mode=static_image_mode,
+                              model_complexity=model_complexity) as holistic:
+      for idx in range(num_frames):
+        results = holistic.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        self._annotate(image.copy(), results, idx)
+        self._assert_diff_less(
+            self._landmarks_list_to_array(results.pose_landmarks, image.shape),
+            EXPECTED_POSE_LANDMARKS,
+            POSE_DIFF_THRESHOLD)
+        self._assert_diff_less(
+            self._landmarks_list_to_array(results.left_hand_landmarks,
+                                          image.shape),
+            EXPECTED_LEFT_HAND_LANDMARKS,
+            HAND_DIFF_THRESHOLD)
+        self._assert_diff_less(
+            self._landmarks_list_to_array(results.right_hand_landmarks,
+                                          image.shape),
+            EXPECTED_RIGHT_HAND_LANDMARKS,
+            HAND_DIFF_THRESHOLD)
+        # TODO: Verify the correctness of the face landmarks.
+        self.assertLen(results.face_landmarks.landmark, 468)
 
 
 if __name__ == '__main__':

@@ -14,6 +14,7 @@
 
 #include "mediapipe/python/pybind/packet_getter.h"
 
+#include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/port/integral_types.h"
@@ -322,6 +323,24 @@ void PublicPacketGetters(pybind11::module* m) {
 )doc",
       py::return_value_policy::reference_internal);
 
+  m->def("get_image", &GetContent<Image>,
+         R"doc(Get the content of a MediaPipe Image Packet as an Image object.
+
+  Args:
+    packet: A MediaPipe Image Packet.
+
+  Returns:
+    A MediaPipe Image object.
+
+  Raises:
+    ValueError: If the Packet doesn't contain Image.
+
+  Examples:
+    packet = packet_creator.create_image(frame)
+    data = packet_getter.get_image(packet)
+)doc",
+         py::return_value_policy::reference_internal);
+
   m->def(
       "get_matrix",
       [](const Packet& packet) {
@@ -358,7 +377,7 @@ void InternalPacketGetters(pybind11::module* m) {
       [](Packet& packet) {
         auto proto_vector = packet.GetVectorOfProtoMessageLitePtrs();
         RaisePyErrorIfNotOk(proto_vector.status());
-        return proto_vector.ValueOrDie().size();
+        return proto_vector.value().size();
       },
       py::return_value_policy::move);
 
@@ -367,10 +386,10 @@ void InternalPacketGetters(pybind11::module* m) {
       [](Packet& packet) {
         auto proto_vector = packet.GetVectorOfProtoMessageLitePtrs();
         RaisePyErrorIfNotOk(proto_vector.status());
-        if (proto_vector.ValueOrDie().empty()) {
+        if (proto_vector.value().empty()) {
           return std::string();
         }
-        return proto_vector.ValueOrDie()[0]->GetTypeName();
+        return proto_vector.value()[0]->GetTypeName();
       },
       py::return_value_policy::move);
 
@@ -391,10 +410,10 @@ void InternalPacketGetters(pybind11::module* m) {
       [](Packet& packet) {
         auto proto_vector = packet.GetVectorOfProtoMessageLitePtrs();
         RaisePyErrorIfNotOk(proto_vector.status());
-        int size = proto_vector.ValueOrDie().size();
+        int size = proto_vector.value().size();
         std::vector<py::bytes> results;
         results.reserve(size);
-        for (const proto_ns::MessageLite* ptr : proto_vector.ValueOrDie()) {
+        for (const proto_ns::MessageLite* ptr : proto_vector.value()) {
           results.push_back(py::bytes(ptr->SerializeAsString()));
         }
         return results;

@@ -234,6 +234,22 @@ cc_test(
 )
 
 cc_library(
+    name = "concatenate_vector_calculator_hdr",
+    hdrs = ["concatenate_vector_calculator.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":concatenate_vector_calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/port:integral_types",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:status",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "concatenate_vector_calculator",
     srcs = ["concatenate_vector_calculator.cc"],
     hdrs = ["concatenate_vector_calculator.h"],
@@ -249,6 +265,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":concatenate_vector_calculator_cc_proto",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:tensor",
@@ -412,7 +430,7 @@ cc_library(
         "//mediapipe/framework/api2:node",
         "//mediapipe/framework/formats:matrix",
         "//mediapipe/framework/port:status",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
     alwayslink = 1,
 )
@@ -428,7 +446,7 @@ cc_library(
         "//mediapipe/framework/api2:node",
         "//mediapipe/framework/formats:matrix",
         "//mediapipe/framework/port:status",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
     alwayslink = 1,
 )
@@ -446,6 +464,35 @@ cc_library(
         "//mediapipe/framework/stream_handler:mux_input_stream_handler",
     ],
     alwayslink = 1,
+)
+
+cc_library(
+    name = "non_zero_calculator",
+    srcs = ["non_zero_calculator.cc"],
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = [
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/port:ret_check",
+    ],
+    alwayslink = 1,
+)
+
+cc_test(
+    name = "non_zero_calculator_test",
+    size = "small",
+    srcs = ["non_zero_calculator_test.cc"],
+    deps = [
+        ":non_zero_calculator",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework:timestamp",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:status",
+        "//mediapipe/framework/tool:validate_type",
+    ],
 )
 
 cc_test(
@@ -554,6 +601,7 @@ cc_library(
     ],
     deps = [
         "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/api2:node",
         "//mediapipe/framework/port:ret_check",
     ],
     alwayslink = 1,
@@ -644,6 +692,18 @@ cc_library(
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/strings",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "default_side_packet_calculator",
+    srcs = ["default_side_packet_calculator.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:status",
     ],
     alwayslink = 1,
 )
@@ -773,7 +833,7 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/tool:validate_type",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -790,7 +850,7 @@ cc_test(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/tool:validate_type",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -1021,7 +1081,7 @@ cc_library(
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/util:time_series_util",
         "@com_google_absl//absl/memory",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
     alwayslink = 1,
 )

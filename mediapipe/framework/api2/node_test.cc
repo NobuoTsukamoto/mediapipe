@@ -12,6 +12,7 @@
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
+#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -32,7 +33,7 @@ std::vector<T> PacketValues(const std::vector<mediapipe::Packet>& packets) {
 
 class FooImpl : public NodeImpl<Foo, FooImpl> {
  public:
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     float bias = kBias(cc).GetOr(0.0);
     float scale = kScale(cc).GetOr(1.0);
     kOut(cc).Send(*kBase(cc) * scale + bias);
@@ -80,7 +81,7 @@ class Foo5 : public FunctionNode<Foo5> {
 
 class Foo2Impl : public NodeImpl<Foo2, Foo2Impl> {
  public:
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     float bias = SideIn(MPP_TAG("BIAS"), cc).GetOr(0.0);
     float scale = In(MPP_TAG("SCALE"), cc).GetOr(1.0);
     Out(MPP_TAG("OUT"), cc).Send(*In(MPP_TAG("BASE"), cc) * scale + bias);
@@ -90,7 +91,7 @@ class Foo2Impl : public NodeImpl<Foo2, Foo2Impl> {
 
 class BarImpl : public NodeImpl<Bar, BarImpl> {
  public:
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     Packet p = kIn(cc);
     kOut(cc).Send(p);
     return {};
@@ -99,9 +100,9 @@ class BarImpl : public NodeImpl<Bar, BarImpl> {
 
 class BazImpl : public NodeImpl<Baz> {
  public:
-  static mediapipe::Status UpdateContract(CalculatorContract* cc) { return {}; }
+  static absl::Status UpdateContract(CalculatorContract* cc) { return {}; }
 
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     for (int i = 0; i < kData(cc).Count(); ++i) {
       kDataOut(cc)[i].Send(kData(cc)[i]);
     }
@@ -112,7 +113,7 @@ MEDIAPIPE_NODE_IMPLEMENTATION(BazImpl);
 
 class IntForwarderImpl : public NodeImpl<IntForwarder, IntForwarderImpl> {
  public:
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     kOut(cc).Send(*kIn(cc));
     return {};
   }
@@ -120,7 +121,7 @@ class IntForwarderImpl : public NodeImpl<IntForwarder, IntForwarderImpl> {
 
 class ToFloatImpl : public NodeImpl<ToFloat, ToFloatImpl> {
  public:
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     kIn(cc).Visit([cc](auto x) { kOut(cc).Send(x); });
     return {};
   }
@@ -131,12 +132,12 @@ TEST(NodeTest, GetContract) {
   // with what you have in the graph, then you let the calculator fill it in
   // with what it expects, and then you see if they match.
   const CalculatorGraphConfig::Node node_config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "Foo"
         input_stream: "BASE:base"
         input_stream: "SCALE:scale"
         output_stream: "OUT:out"
-      )");
+      )pb");
   mediapipe::CalculatorContract contract;
   MP_EXPECT_OK(contract.Initialize(node_config));
   MP_EXPECT_OK(Foo::Contract::GetContract(&contract));
@@ -146,13 +147,13 @@ TEST(NodeTest, GetContract) {
 
 TEST(NodeTest, GetContractMulti) {
   const CalculatorGraphConfig::Node node_config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "Baz"
         input_stream: "DATA:0:b"
         input_stream: "DATA:1:c"
         output_stream: "DATA:0:d"
         output_stream: "DATA:1:e"
-      )");
+      )pb");
   mediapipe::CalculatorContract contract;
   MP_EXPECT_OK(contract.Initialize(node_config));
   MP_EXPECT_OK(Baz::Contract::GetContract(&contract));
@@ -203,7 +204,7 @@ TEST(NodeTest, RunInGraph5) { RunFooCalculatorInGraph("Foo5"); }
 
 TEST(NodeTest, OptionalStream) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "base"
         input_side_packet: "bias"
         output_stream: "out"
@@ -213,7 +214,7 @@ TEST(NodeTest, OptionalStream) {
           input_side_packet: "BIAS:bias"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<mediapipe::Packet> out_packets;
   tool::AddVectorSink("out", &config, &out_packets);
   mediapipe::CalculatorGraph graph;
@@ -228,7 +229,7 @@ TEST(NodeTest, OptionalStream) {
 
 TEST(NodeTest, DynamicTypes) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         output_stream: "out"
         node {
@@ -241,7 +242,7 @@ TEST(NodeTest, DynamicTypes) {
           input_stream: "IN:bar"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<mediapipe::Packet> out_packets;
   tool::AddVectorSink("out", &config, &out_packets);
   mediapipe::CalculatorGraph graph;
@@ -256,7 +257,7 @@ TEST(NodeTest, DynamicTypes) {
 
 TEST(NodeTest, MultiPort) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in0"
         input_stream: "in1"
         output_stream: "out0"
@@ -278,7 +279,7 @@ TEST(NodeTest, MultiPort) {
           input_stream: "IN:baz1"
           output_stream: "OUT:out1"
         }
-      )");
+      )pb");
   std::vector<mediapipe::Packet> out0_packets;
   std::vector<mediapipe::Packet> out1_packets;
   tool::AddVectorSink("out0", &config, &out0_packets);
@@ -315,7 +316,7 @@ struct SideFallback : public Node {
 
   MEDIAPIPE_NODE_CONTRACT(kIn, kFactor, kOut);
 
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     kOut(cc).Send(kIn(cc).Get() * kFactor(cc).Get());
     return {};
   }
@@ -324,7 +325,7 @@ MEDIAPIPE_REGISTER_NODE(SideFallback);
 
 TEST(NodeTest, SideFallbackWithStream) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         input_stream: "factor"
         output_stream: "out"
@@ -334,14 +335,14 @@ TEST(NodeTest, SideFallbackWithStream) {
           input_stream: "FACTOR:factor"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<int> outputs;
   mediapipe::CalculatorGraph graph;
   MP_EXPECT_OK(graph.Initialize(config, {}));
   MP_EXPECT_OK(
       graph.ObserveOutputStream("out", [&outputs](const mediapipe::Packet& p) {
         outputs.push_back(p.Get<int>());
-        return mediapipe::OkStatus();
+        return absl::OkStatus();
       }));
   MP_EXPECT_OK(graph.StartRun({}));
   MP_EXPECT_OK(graph.AddPacketToInputStream(
@@ -355,7 +356,7 @@ TEST(NodeTest, SideFallbackWithStream) {
 
 TEST(NodeTest, SideFallbackWithSide) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         input_side_packet: "factor"
         output_stream: "out"
@@ -365,14 +366,14 @@ TEST(NodeTest, SideFallbackWithSide) {
           input_side_packet: "FACTOR:factor"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<int> outputs;
   mediapipe::CalculatorGraph graph;
   MP_EXPECT_OK(graph.Initialize(config, {}));
   MP_EXPECT_OK(
       graph.ObserveOutputStream("out", [&outputs](const mediapipe::Packet& p) {
         outputs.push_back(p.Get<int>());
-        return mediapipe::OkStatus();
+        return absl::OkStatus();
       }));
   MP_EXPECT_OK(graph.StartRun({{"factor", mediapipe::MakePacket<int>(2)}}));
   MP_EXPECT_OK(graph.AddPacketToInputStream(
@@ -384,7 +385,7 @@ TEST(NodeTest, SideFallbackWithSide) {
 
 TEST(NodeTest, SideFallbackWithNone) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         output_stream: "out"
         node {
@@ -392,7 +393,7 @@ TEST(NodeTest, SideFallbackWithNone) {
           input_stream: "IN:in"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<int> outputs;
   mediapipe::CalculatorGraph graph;
   auto status = graph.Initialize(config, {});
@@ -401,7 +402,7 @@ TEST(NodeTest, SideFallbackWithNone) {
 
 TEST(NodeTest, SideFallbackWithBoth) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         input_stream: "factor"
         input_side_packet: "factor_side"
@@ -413,7 +414,7 @@ TEST(NodeTest, SideFallbackWithBoth) {
           input_side_packet: "FACTOR:factor_side"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<int> outputs;
   mediapipe::CalculatorGraph graph;
   auto status = graph.Initialize(config, {});
@@ -422,7 +423,7 @@ TEST(NodeTest, SideFallbackWithBoth) {
 
 TEST(NodeTest, OneOf) {
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "in"
         output_stream: "out"
         node {
@@ -430,7 +431,7 @@ TEST(NodeTest, OneOf) {
           input_stream: "IN:in"
           output_stream: "OUT:out"
         }
-      )");
+      )pb");
   std::vector<mediapipe::Packet> out_packets;
   tool::AddVectorSink("out", &config, &out_packets);
   mediapipe::CalculatorGraph graph;
@@ -451,7 +452,7 @@ struct DropEvenTimestamps : public Node {
 
   MEDIAPIPE_NODE_CONTRACT(kIn, kOut);
 
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     if (cc->InputTimestamp().Value() % 2) {
       kOut(cc).Send(kIn(cc));
     }
@@ -466,7 +467,7 @@ struct ListIntPackets : public Node {
 
   MEDIAPIPE_NODE_CONTRACT(kIn, kOut);
 
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     std::string result = absl::StrCat(cc->InputTimestamp().DebugString(), ":");
     for (int i = 0; i < kIn(cc).Count(); ++i) {
       if (kIn(cc)[i].IsEmpty()) {
@@ -483,7 +484,7 @@ MEDIAPIPE_REGISTER_NODE(ListIntPackets);
 
 TEST(NodeTest, DefaultTimestampChange0) {
   CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: "a"
         input_stream: "b"
         output_stream: "out"
@@ -503,7 +504,7 @@ TEST(NodeTest, DefaultTimestampChange0) {
           input_stream: "INT:1:b"
           output_stream: "STR:out"
         }
-      )");
+      )pb");
   std::vector<mediapipe::Packet> out_packets;
   tool::AddVectorSink("out", &config, &out_packets);
   mediapipe::CalculatorGraph graph;
@@ -518,6 +519,48 @@ TEST(NodeTest, DefaultTimestampChange0) {
   // should be forwarded by IntForwarder, and ListIntPackets should have run.
   EXPECT_THAT(PacketValues<std::string>(out_packets),
               testing::ElementsAre("2: empty 10"));
+  MP_EXPECT_OK(graph.CloseAllPacketSources());
+  MP_EXPECT_OK(graph.WaitUntilDone());
+}
+
+struct ConsumerNode : public Node {
+  static constexpr Input<int> kInt{"INT"};
+  static constexpr Input<AnyType> kGeneric{"ANY"};
+  static constexpr Input<OneOf<int, float>> kOneOf{"NUM"};
+
+  MEDIAPIPE_NODE_CONTRACT(kInt, kGeneric, kOneOf);
+
+  absl::Status Process(CalculatorContext* cc) override {
+    ASSIGN_OR_RETURN(auto maybe_int, kInt(cc).Consume());
+    ASSIGN_OR_RETURN(auto maybe_float, kGeneric(cc).Consume<float>());
+    ASSIGN_OR_RETURN(auto maybe_int2, kOneOf(cc).Consume<int>());
+    return {};
+  }
+};
+MEDIAPIPE_REGISTER_NODE(ConsumerNode);
+
+TEST(NodeTest, ConsumeInputs) {
+  CalculatorGraphConfig config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
+        input_stream: "int"
+        input_stream: "any"
+        input_stream: "num"
+        node {
+          calculator: "ConsumerNode"
+          input_stream: "INT:int"
+          input_stream: "ANY:any"
+          input_stream: "NUM:num"
+        }
+      )pb");
+  mediapipe::CalculatorGraph graph;
+  MP_EXPECT_OK(graph.Initialize(config, {}));
+  MP_EXPECT_OK(graph.StartRun({}));
+  MP_EXPECT_OK(graph.AddPacketToInputStream(
+      "int", mediapipe::MakePacket<int>(10).At(Timestamp(0))));
+  MP_EXPECT_OK(graph.AddPacketToInputStream(
+      "any", mediapipe::MakePacket<float>(10).At(Timestamp(0))));
+  MP_EXPECT_OK(graph.AddPacketToInputStream(
+      "num", mediapipe::MakePacket<int>(10).At(Timestamp(0))));
   MP_EXPECT_OK(graph.CloseAllPacketSources());
   MP_EXPECT_OK(graph.WaitUntilDone());
 }

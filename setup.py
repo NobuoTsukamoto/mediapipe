@@ -1,4 +1,4 @@
-"""Copyright 2020 The MediaPipe Authors.
+"""Copyright 2020-2021 The MediaPipe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -43,7 +43,8 @@ SUBDIR_INIT_PY_FILES = [
     os.path.join(MP_ROOT_PATH, 'mediapipe/calculators/__init__.py'),
     os.path.join(MP_ROOT_PATH, 'mediapipe/modules/__init__.py'),
     os.path.join(MP_ROOT_PATH,
-                 'mediapipe/modules/holistic_landmark/__init__.py')
+                 'mediapipe/modules/holistic_landmark/__init__.py'),
+    os.path.join(MP_ROOT_PATH, 'mediapipe/modules/objectron/__init__.py')
 ]
 if not os.path.exists(ROOT_INIT_PY):
   open(ROOT_INIT_PY, 'w').close()
@@ -84,8 +85,10 @@ def _check_bazel():
     sys.exit(-1)
   try:
     bazel_version_info = subprocess.check_output(['bazel', '--version'])
-  except subprocess.CalledProcessError:
-    sys.stderr.write('fail to get bazel version by $ bazel --version.')
+  except subprocess.CalledProcessError as e:
+    sys.stderr.write('fail to get bazel version by $ bazel --version: ' +
+                     str(e.output))
+    sys.exit(-1)
   bazel_version_info = bazel_version_info.decode('UTF-8').strip()
   version = bazel_version_info.split('bazel ')[1].split('-')[0]
   version_segments = version.split('.')
@@ -179,13 +182,13 @@ class GeneratePyProtos(setuptools.Command):
         'mediapipe/util/**/*.proto'
     ]:
       for proto_file in glob.glob(pattern, recursive=True):
+        proto_dir = os.path.dirname(os.path.abspath(proto_file))
         # Ignore test protos.
         if proto_file.endswith('test.proto'):
           continue
-        # Ignore tensorflow protos.
-        if 'tensorflow' in proto_file:
+        # Ignore tensorflow protos in mediapipe/calculators/tensorflow.
+        if 'tensorflow' in proto_dir:
           continue
-        proto_dir = os.path.dirname(os.path.abspath(proto_file))
         # Ignore testdata dir.
         if proto_dir.endswith('testdata'):
           continue
@@ -219,9 +222,10 @@ class BuildBinaryGraphs(build.build):
   def run(self):
     _check_bazel()
     binary_graphs = [
+        'face_detection/face_detection_front_cpu',
         'face_landmark/face_landmark_front_cpu',
         'hand_landmark/hand_landmark_tracking_cpu',
-        'holistic_landmark/holistic_landmark_cpu',
+        'holistic_landmark/holistic_landmark_cpu', 'objectron/objectron_cpu',
         'pose_landmark/pose_landmark_cpu'
     ]
     for binary_graph in binary_graphs:
@@ -432,9 +436,9 @@ setuptools.setup(
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Operating System :: POSIX :: Linux',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',

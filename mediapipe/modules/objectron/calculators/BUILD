@@ -13,6 +13,7 @@
 # limitations under the License.
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+load("//mediapipe/framework:mediapipe_register_type.bzl", "mediapipe_register_type")
 
 licenses(["notice"])
 
@@ -38,6 +39,15 @@ mediapipe_proto_library(
         ":a_r_capture_metadata_proto",
         ":object_proto",
     ],
+)
+
+mediapipe_register_type(
+    base_name = "annotation",
+    include_headers = ["mediapipe/modules/objectron/calculators/annotation_data.pb.h"],
+    types = [
+        "::mediapipe::FrameAnnotation",
+    ],
+    deps = [":annotation_cc_proto"],
 )
 
 mediapipe_proto_library(
@@ -153,12 +163,13 @@ cc_library(
     deps = [
         ":annotation_cc_proto",
         ":belief_decoder_config_cc_proto",
+        ":box",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/status",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -194,7 +205,7 @@ cc_library(
         ":annotation_cc_proto",
         ":object_cc_proto",
         "//mediapipe/framework/port:logging",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -252,7 +263,7 @@ cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
         "@org_tensorflow//tensorflow/lite:framework",
     ],
     alwayslink = 1,
@@ -276,7 +287,7 @@ cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
     alwayslink = 1,
 )
@@ -291,7 +302,6 @@ cc_library(
         ":decoder",
         ":lift_2d_frame_annotation_to_3d_calculator_cc_proto",
         ":tensor_util",
-        ":tflite_tensors_to_objects_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/deps:file_path",
         "//mediapipe/framework/formats:detection_cc_proto",
@@ -300,7 +310,7 @@ cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
         "@org_tensorflow//tensorflow/lite:framework",
     ],
     alwayslink = 1,
@@ -311,14 +321,13 @@ cc_library(
     srcs = ["frame_annotation_to_rect_calculator.cc"],
     deps = [
         ":annotation_cc_proto",
-        ":box",
         ":frame_annotation_to_rect_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/memory",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
     alwayslink = 1,
 )

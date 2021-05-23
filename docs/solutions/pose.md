@@ -2,6 +2,8 @@
 layout: default
 title: Pose
 parent: Solutions
+has_children: true
+has_toc: false
 nav_order: 5
 ---
 
@@ -21,25 +23,25 @@ nav_order: 5
 ## Overview
 
 Human pose estimation from video plays a critical role in various applications
-such as quantifying physical exercises, sign language recognition, and full-body
-gesture control. For example, it can form the basis for yoga, dance, and fitness
-applications. It can also enable the overlay of digital content and information
-on top of the physical world in augmented reality.
+such as [quantifying physical exercises](./pose_classification.md), sign
+language recognition, and full-body gesture control. For example, it can form
+the basis for yoga, dance, and fitness applications. It can also enable the
+overlay of digital content and information on top of the physical world in
+augmented reality.
 
 MediaPipe Pose is a ML solution for high-fidelity body pose tracking, inferring
-33 2D landmarks on the whole body (or 25 upper-body landmarks) from RGB video
-frames utilizing our
+33 3D landmarks on the whole body from RGB video frames utilizing our
 [BlazePose](https://ai.googleblog.com/2020/08/on-device-real-time-body-pose-tracking.html)
 research that also powers the
 [ML Kit Pose Detection API](https://developers.google.com/ml-kit/vision/pose-detection).
 Current state-of-the-art approaches rely primarily on powerful desktop
 environments for inference, whereas our method achieves real-time performance on
 most modern [mobile phones](#mobile), [desktops/laptops](#desktop), in
-[python](#python) and even on the [web](#web).
+[python](#python-solution-api) and even on the [web](#javascript-solution-api).
 
-![pose_tracking_upper_body_example.gif](../images/mobile/pose_tracking_upper_body_example.gif) |
-:--------------------------------------------------------------------------------------------: |
-*Fig 1. Example of MediaPipe Pose for upper-body pose tracking.*                               |
+![pose_tracking_example.gif](../images/mobile/pose_tracking_example.gif) |
+:----------------------------------------------------------------------: |
+*Fig 1. Example of MediaPipe Pose for pose tracking.*                    |
 
 ## ML Pipeline
 
@@ -74,6 +76,36 @@ Note: To visualize a graph, copy the graph and paste it into
 to visualize its associated subgraphs, please see
 [visualizer documentation](../tools/visualizer.md).
 
+## Pose Estimation Quality
+
+To evaluate the quality of our [models](./models.md#pose) against other
+well-performing publicly available solutions, we use three different validation
+datasets, representing different verticals: Yoga, Dance and HIIT. Each image
+contains only a single person located 2-4 meters from the camera. To be
+consistent with other solutions, we perform evaluation only for 17 keypoints
+from [COCO topology](https://cocodataset.org/#keypoints-2020).
+
+Method                                                                                                | Yoga <br/> [`mAP`] | Yoga <br/> [`PCK@0.2`] | Dance <br/> [`mAP`] | Dance <br/> [`PCK@0.2`] | HIIT <br/> [`mAP`] | HIIT <br/> [`PCK@0.2`]
+----------------------------------------------------------------------------------------------------- | -----------------: | ---------------------: | ------------------: | ----------------------: | -----------------: | ---------------------:
+BlazePose.Heavy                                                                                       | 68.1               | **96.4**               | 73.0                | **97.2**                | 74.0               | **97.5**
+BlazePose.Full                                                                                        | 62.6               | **95.5**               | 67.4                | **96.3**                | 68.0               | **95.7**
+BlazePose.Lite                                                                                        | 45.0               | **90.2**               | 53.6                | **92.5**                | 53.8               | **93.5**
+[AlphaPose.ResNet50](https://github.com/MVIG-SJTU/AlphaPose)                                          | 63.4               | **96.0**               | 57.8                | **95.5**                | 63.4               | **96.0**
+[Apple.Vision](https://developer.apple.com/documentation/vision/detecting_human_body_poses_in_images) | 32.8               | **82.7**               | 36.4                | **91.4**                | 44.5               | **88.6**
+
+![pose_tracking_pck_chart.png](../images/mobile/pose_tracking_pck_chart.png) |
+:--------------------------------------------------------------------------: |
+*Fig 2. Quality evaluation in [`PCK@0.2`].*                                  |
+
+We designed our models specifically for live perception use cases, so all of
+them work in real-time on the majority of modern devices.
+
+Method          | Latency <br/> Pixel 3 [TFLite GPU](https://www.tensorflow.org/lite/performance/gpu_advanced) | Latency <br/> MacBook Pro (15-inch 2017)
+--------------- | -------------------------------------------------------------------------------------------: | ---------------------------------------:
+BlazePose.Heavy | 53 ms                                                                                        | 38 ms
+BlazePose.Full  | 25 ms                                                                                        | 27 ms
+BlazePose.Lite  | 20 ms                                                                                        | 25 ms
+
 ## Models
 
 ### Person/pose Detection Model (BlazePose Detector)
@@ -90,15 +122,12 @@ hip midpoints.
 
 ![pose_tracking_detector_vitruvian_man.png](../images/mobile/pose_tracking_detector_vitruvian_man.png) |
 :----------------------------------------------------------------------------------------------------: |
-*Fig 2. Vitruvian man aligned via two virtual keypoints predicted by BlazePose detector in addition to the face bounding box.* |
+*Fig 3. Vitruvian man aligned via two virtual keypoints predicted by BlazePose detector in addition to the face bounding box.* |
 
-### Pose Landmark Model (BlazePose Tracker)
+### Pose Landmark Model (BlazePose GHUM 3D)
 
-The landmark model in MediaPipe Pose comes in two versions: a full-body model
-that predicts the location of 33 pose landmarks (see figure below), and an
-upper-body version that only predicts the first 25. The latter may be more
-accurate than the former in scenarios where the lower-body parts are mostly out
-of view.
+The landmark model in MediaPipe Pose predicts the location of 33 pose landmarks
+(see figure below).
 
 Please find more detail in the
 [BlazePose Google AI Blog](https://ai.googleblog.com/2020/08/on-device-real-time-body-pose-tracking.html),
@@ -108,7 +137,7 @@ this [paper](https://arxiv.org/abs/2006.10204) and
 
 ![pose_tracking_full_body_landmarks.png](../images/mobile/pose_tracking_full_body_landmarks.png) |
 :----------------------------------------------------------------------------------------------: |
-*Fig 3. 33 pose landmarks.*                                                                      |
+*Fig 4. 33 pose landmarks.*                                                                      |
 
 ## Solution APIs
 
@@ -126,12 +155,11 @@ until it loses track, on reducing computation and latency. If set to `true`,
 person detection runs every input image, ideal for processing a batch of static,
 possibly unrelated, images. Default to `false`.
 
-#### upper_body_only
+#### model_complexity
 
-If set to `true`, the solution outputs only the 25 upper-body pose landmarks.
-Otherwise, it outputs the full set of 33 pose landmarks. Note that
-upper-body-only prediction may be more accurate for use cases where the
-lower-body parts are mostly out of view. Default to `false`.
+Complexity of the pose landmark model: `0`, `1` or `2`. Landmark accuracy as
+well as inference latency generally go up with the model complexity. Default to
+`1`.
 
 #### smooth_landmarks
 
@@ -163,21 +191,23 @@ A list of pose landmarks. Each lanmark consists of the following:
 
 *   `x` and `y`: Landmark coordinates normalized to `[0.0, 1.0]` by the image
     width and height respectively.
-*   `z`: Should be discarded as currently the model is not fully trained to
-    predict depth, but this is something on the roadmap.
+*   `z`: Represents the landmark depth with the depth at the midpoint of hips
+    being the origin, and the smaller the value the closer the landmark is to
+    the camera. The magnitude of `z` uses roughly the same scale as `x`.
+
 *   `visibility`: A value in `[0.0, 1.0]` indicating the likelihood of the
     landmark being visible (present and not occluded) in the image.
 
 ### Python Solution API
 
 Please first follow general [instructions](../getting_started/python.md) to
-install MediaPipe Python package, then learn more in the companion [Colab] and
-the following usage example.
+install MediaPipe Python package, then learn more in the companion
+[Python Colab](#resources) and the following usage example.
 
 Supported configuration options:
 
 *   [static_image_mode](#static_image_mode)
-*   [upper_body_only](#upper_body_only)
+*   [model_complexity](#model_complexity)
 *   [smooth_landmarks](#smooth_landmarks)
 *   [min_detection_confidence](#min_detection_confidence)
 *   [min_tracking_confidence](#min_tracking_confidence)
@@ -189,68 +219,69 @@ mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
 
 # For static images:
-pose = mp_pose.Pose(
-    static_image_mode=True, min_detection_confidence=0.5)
-for idx, file in enumerate(file_list):
-  image = cv2.imread(file)
-  image_hight, image_width, _ = image.shape
-  # Convert the BGR image to RGB before processing.
-  results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+with mp_pose.Pose(
+    static_image_mode=True,
+    model_complexity=2,
+    min_detection_confidence=0.5) as pose:
+  for idx, file in enumerate(file_list):
+    image = cv2.imread(file)
+    image_height, image_width, _ = image.shape
+    # Convert the BGR image to RGB before processing.
+    results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
-  if not results.pose_landmarks:
-    continue
-  print(
-      f'Nose coordinates: ('
-      f'{results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].x * image_width}, '
-      f'{results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].y * image_hight})'
-  )
-  # Draw pose landmarks on the image.
-  annotated_image = image.copy()
-  mp_drawing.draw_landmarks(
-      annotated_image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-  cv2.imwrite('/tmp/annotated_image' + str(idx) + '.png', annotated_image)
-pose.close()
+    if not results.pose_landmarks:
+      continue
+    print(
+        f'Nose coordinates: ('
+        f'{results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].x * image_width}, '
+        f'{results.pose_landmarks.landmark[mp_holistic.PoseLandmark.NOSE].y * image_height})'
+    )
+    # Draw pose landmarks on the image.
+    annotated_image = image.copy()
+    mp_drawing.draw_landmarks(
+        annotated_image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+    cv2.imwrite('/tmp/annotated_image' + str(idx) + '.png', annotated_image)
 
 # For webcam input:
-pose = mp_pose.Pose(
-    min_detection_confidence=0.5, min_tracking_confidence=0.5)
 cap = cv2.VideoCapture(0)
-while cap.isOpened():
-  success, image = cap.read()
-  if not success:
-    print("Ignoring empty camera frame.")
-    # If loading a video, use 'break' instead of 'continue'.
-    continue
+with mp_pose.Pose(
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5) as pose:
+  while cap.isOpened():
+    success, image = cap.read()
+    if not success:
+      print("Ignoring empty camera frame.")
+      # If loading a video, use 'break' instead of 'continue'.
+      continue
 
-  # Flip the image horizontally for a later selfie-view display, and convert
-  # the BGR image to RGB.
-  image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
-  # To improve performance, optionally mark the image as not writeable to
-  # pass by reference.
-  image.flags.writeable = False
-  results = pose.process(image)
+    # Flip the image horizontally for a later selfie-view display, and convert
+    # the BGR image to RGB.
+    image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
+    # To improve performance, optionally mark the image as not writeable to
+    # pass by reference.
+    image.flags.writeable = False
+    results = pose.process(image)
 
-  # Draw the pose annotation on the image.
-  image.flags.writeable = True
-  image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-  mp_drawing.draw_landmarks(
-      image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-  cv2.imshow('MediaPipe Pose', image)
-  if cv2.waitKey(5) & 0xFF == 27:
-    break
-pose.close()
+    # Draw the pose annotation on the image.
+    image.flags.writeable = True
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    mp_drawing.draw_landmarks(
+        image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+    cv2.imshow('MediaPipe Pose', image)
+    if cv2.waitKey(5) & 0xFF == 27:
+      break
 cap.release()
 ```
 
 ### JavaScript Solution API
 
 Please first see general [introduction](../getting_started/javascript.md) on
-MediaPipe in JavaScript, then learn more in the companion [web demo] and the
-following usage example.
+MediaPipe in JavaScript, then learn more in the companion [web demo](#resources)
+and the following usage example.
 
 Supported configuration options:
 
-*   [upperBodyOnly](#upper_body_only)
+*   [modelComplexity](#model_complexity)
 *   [smoothLandmarks](#smooth_landmarks)
 *   [minDetectionConfidence](#min_detection_confidence)
 *   [minTrackingConfidence](#min_tracking_confidence)
@@ -297,7 +328,7 @@ const pose = new Pose({locateFile: (file) => {
   return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
 }});
 pose.setOptions({
-  upperBodyOnly: false,
+  modelComplexity: 1,
   smoothLandmarks: true,
   minDetectionConfidence: 0.5,
   minTrackingConfidence: 0.5
@@ -338,16 +369,6 @@ to visualize its associated subgraphs, please see
 *   iOS target:
     [`mediapipe/examples/ios/posetrackinggpu:PoseTrackingGpuApp`](http:/mediapipe/examples/ios/posetrackinggpu/BUILD)
 
-#### Upper-body Only
-
-*   Graph:
-    [`mediapipe/graphs/pose_tracking/upper_body_pose_tracking_gpu.pbtxt`](https://github.com/google/mediapipe/tree/master/mediapipe/graphs/pose_tracking/upper_body_pose_tracking_gpu.pbtxt)
-*   Android target:
-    [(or download prebuilt ARM64 APK)](https://drive.google.com/file/d/1uKc6T7KSuA0Mlq2URi5YookHu0U3yoh_/view?usp=sharing)
-    [`mediapipe/examples/android/src/java/com/google/mediapipe/apps/upperbodyposetrackinggpu:upperbodyposetrackinggpu`](https://github.com/google/mediapipe/tree/master/mediapipe/examples/android/src/java/com/google/mediapipe/apps/upperbodyposetrackinggpu/BUILD)
-*   iOS target:
-    [`mediapipe/examples/ios/upperbodyposetrackinggpu:UpperBodyPoseTrackingGpuApp`](http:/mediapipe/examples/ios/upperbodyposetrackinggpu/BUILD)
-
 ### Desktop
 
 Please first see general instructions for [desktop](../getting_started/cpp.md)
@@ -366,19 +387,6 @@ on how to build MediaPipe examples.
     *   Target:
         [`mediapipe/examples/desktop/pose_tracking:pose_tracking_gpu`](https://github.com/google/mediapipe/tree/master/mediapipe/examples/desktop/pose_tracking/BUILD)
 
-#### Upper-body Only
-
-*   Running on CPU
-    *   Graph:
-        [`mediapipe/graphs/pose_tracking/upper_body_pose_tracking_cpu.pbtxt`](https://github.com/google/mediapipe/tree/master/mediapipe/graphs/pose_tracking/upper_body_pose_tracking_cpu.pbtxt)
-    *   Target:
-        [`mediapipe/examples/desktop/upper_body_pose_tracking:upper_body_pose_tracking_cpu`](https://github.com/google/mediapipe/tree/master/mediapipe/examples/desktop/upper_body_pose_tracking/BUILD)
-*   Running on GPU
-    *   Graph:
-        [`mediapipe/graphs/pose_tracking/upper_body_pose_tracking_gpu.pbtxt`](https://github.com/google/mediapipe/tree/master/mediapipe/graphs/pose_tracking/upper_body_pose_tracking_gpu.pbtxt)
-    *   Target:
-        [`mediapipe/examples/desktop/upper_body_pose_tracking:upper_body_pose_tracking_gpu`](https://github.com/google/mediapipe/tree/master/mediapipe/examples/desktop/upper_body_pose_tracking/BUILD)
-
 ## Resources
 
 *   Google AI Blog:
@@ -387,7 +395,8 @@ on how to build MediaPipe examples.
     [BlazePose: On-device Real-time Body Pose Tracking](https://arxiv.org/abs/2006.10204)
     ([presentation](https://youtu.be/YPpUOTRn5tA))
 *   [Models and model cards](./models.md#pose)
+*   [Web demo](https://code.mediapipe.dev/codepen/pose)
+*   [Python Colab](https://mediapipe.page.link/pose_py_colab)
 
-[Colab]:https://mediapipe.page.link/pose_py_colab
-
-[web demo]:https://code.mediapipe.dev/codepen/pose
+[`mAP`]: https://cocodataset.org/#keypoints-eval
+[`PCK@0.2`]: https://github.com/cbsudux/Human-Pose-Estimation-101

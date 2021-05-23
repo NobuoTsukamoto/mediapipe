@@ -56,14 +56,14 @@ class TensorsToClassificationCalculatorTest : public ::testing::Test {
 };
 
 TEST_F(TensorsToClassificationCalculatorTest, CorrectOutput) {
-  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"(
+  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"pb(
     calculator: "TensorsToClassificationCalculator"
     input_stream: "TENSORS:tensors"
     output_stream: "CLASSIFICATIONS:classifications"
     options {
       [mediapipe.TensorsToClassificationCalculatorOptions.ext] {}
     }
-  )"));
+  )pb"));
 
   BuildGraph(&runner, {0, 0.5, 1});
   MP_ASSERT_OK(runner.Run());
@@ -85,7 +85,7 @@ TEST_F(TensorsToClassificationCalculatorTest, CorrectOutput) {
 }
 
 TEST_F(TensorsToClassificationCalculatorTest, CorrectOutputWithLabelMapPath) {
-  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"(
+  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"pb(
     calculator: "TensorsToClassificationCalculator"
     input_stream: "TENSORS:tensors"
     output_stream: "CLASSIFICATIONS:classifications"
@@ -94,7 +94,42 @@ TEST_F(TensorsToClassificationCalculatorTest, CorrectOutputWithLabelMapPath) {
         label_map_path: "mediapipe/calculators/tensor/testdata/labelmap.txt"
       }
     }
-  )"));
+  )pb"));
+
+  BuildGraph(&runner, {0, 0.5, 1});
+  MP_ASSERT_OK(runner.Run());
+
+  const auto& output_packets_ = runner.Outputs().Tag("CLASSIFICATIONS").packets;
+
+  EXPECT_EQ(1, output_packets_.size());
+
+  const auto& classification_list =
+      output_packets_[0].Get<ClassificationList>();
+  EXPECT_EQ(3, classification_list.classification_size());
+
+  // Verify that the label field is set.
+  for (int i = 0; i < classification_list.classification_size(); ++i) {
+    EXPECT_EQ(i, classification_list.classification(i).index());
+    EXPECT_EQ(i * 0.5, classification_list.classification(i).score());
+    ASSERT_TRUE(classification_list.classification(i).has_label());
+  }
+}
+
+TEST_F(TensorsToClassificationCalculatorTest, CorrectOutputWithLabelMap) {
+  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"pb(
+    calculator: "TensorsToClassificationCalculator"
+    input_stream: "TENSORS:tensors"
+    output_stream: "CLASSIFICATIONS:classifications"
+    options {
+      [mediapipe.TensorsToClassificationCalculatorOptions.ext] {
+        label_map {
+          entries { id: 0, label: "ClassA" }
+          entries { id: 1, label: "ClassB" }
+          entries { id: 2, label: "ClassC" }
+        }
+      }
+    }
+  )pb"));
 
   BuildGraph(&runner, {0, 0.5, 1});
   MP_ASSERT_OK(runner.Run());
@@ -117,7 +152,7 @@ TEST_F(TensorsToClassificationCalculatorTest, CorrectOutputWithLabelMapPath) {
 
 TEST_F(TensorsToClassificationCalculatorTest,
        CorrectOutputWithLabelMinScoreThreshold) {
-  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"(
+  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"pb(
     calculator: "TensorsToClassificationCalculator"
     input_stream: "TENSORS:tensors"
     output_stream: "CLASSIFICATIONS:classifications"
@@ -126,7 +161,7 @@ TEST_F(TensorsToClassificationCalculatorTest,
         min_score_threshold: 0.6
       }
     }
-  )"));
+  )pb"));
 
   BuildGraph(&runner, {0, 0.5, 1});
   MP_ASSERT_OK(runner.Run());
@@ -144,14 +179,14 @@ TEST_F(TensorsToClassificationCalculatorTest,
 }
 
 TEST_F(TensorsToClassificationCalculatorTest, CorrectOutputWithTopK) {
-  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"(
+  mediapipe::CalculatorRunner runner(ParseTextProtoOrDie<Node>(R"pb(
     calculator: "TensorsToClassificationCalculator"
     input_stream: "TENSORS:tensors"
     output_stream: "CLASSIFICATIONS:classifications"
     options {
       [mediapipe.TensorsToClassificationCalculatorOptions.ext] { top_k: 2 }
     }
-  )"));
+  )pb"));
 
   BuildGraph(&runner, {0, 0.5, 1});
   MP_ASSERT_OK(runner.Run());

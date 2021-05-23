@@ -30,6 +30,7 @@
 
 namespace mediapipe {
 
+using ::testing::ElementsAre;
 namespace {
 // A simple version of CalculatorRunner with built-in convenience
 // methods for setting inputs from a vector and checking outputs
@@ -95,6 +96,77 @@ class SimpleRunner : public CalculatorRunner {
   VideoHeader video_header_;
   static int static_count_;
 };
+
+// Matcher for Packets with uint64 payload, comparing arg packet's
+// timestamp and uint64 payload.
+MATCHER_P2(PacketAtTimestamp, payload, timestamp,
+           absl::StrCat(negation ? "isn't" : "is", " a packet with payload ",
+                        payload, " @ time ", timestamp)) {
+  if (timestamp != arg.Timestamp().Value()) {
+    *result_listener << "at incorrect timestamp = " << arg.Timestamp().Value();
+    return false;
+  }
+  int64 actual_payload = arg.template Get<int64>();
+  if (actual_payload != payload) {
+    *result_listener << "with incorrect payload = " << actual_payload;
+    return false;
+  }
+  return true;
+}
+
+// JitterWithReflectionStrategy child class which injects a specified stream
+// of "random" numbers.
+//
+// Calculators are created through factory methods, making testing and injection
+// tricky.  This class utilizes a static variable, random_sequence, to pass
+// the desired random sequence into the calculator.
+class ReproducibleJitterWithReflectionStrategyForTesting
+    : public ReproducibleJitterWithReflectionStrategy {
+ public:
+  ReproducibleJitterWithReflectionStrategyForTesting(
+      PacketResamplerCalculator* calculator)
+      : ReproducibleJitterWithReflectionStrategy(calculator) {}
+
+  // Statically accessed random sequence to use for jitter with reflection.
+  //
+  // An EXPECT will fail if sequence is less than the number requested during
+  // processing.
+  static std::vector<uint64> random_sequence;
+
+ protected:
+  virtual uint64 GetNextRandom(uint64 n) {
+    EXPECT_LT(sequence_index_, random_sequence.size());
+    return random_sequence[sequence_index_++] % n;
+  }
+
+ private:
+  int32 sequence_index_ = 0;
+};
+std::vector<uint64>
+    ReproducibleJitterWithReflectionStrategyForTesting::random_sequence;
+
+// PacketResamplerCalculator child class which injects a specified stream
+// of "random" numbers.
+//
+// Calculators are created through factory methods, making testing and injection
+// tricky.  This class utilizes a static variable, random_sequence, to pass
+// the desired random sequence into the calculator.
+class ReproducibleResamplerCalculatorForTesting
+    : public PacketResamplerCalculator {
+ public:
+  static absl::Status GetContract(CalculatorContract* cc) {
+    return PacketResamplerCalculator::GetContract(cc);
+  }
+
+ protected:
+  std::unique_ptr<class PacketResamplerStrategy> GetSamplingStrategy(
+      const mediapipe::PacketResamplerCalculatorOptions& Options) {
+    return absl::make_unique<
+        ReproducibleJitterWithReflectionStrategyForTesting>(this);
+  }
+};
+
+REGISTER_CALCULATOR(ReproducibleResamplerCalculatorForTesting);
 
 int SimpleRunner::static_count_ = 0;
 
@@ -380,7 +452,7 @@ TEST(PacketResamplerCalculatorTest, FrameRateTest) {
 }
 
 TEST(PacketResamplerCalculatorTest, SetVideoHeader) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "PacketResamplerCalculator"
     input_stream: "DATA:in_data"
     input_stream: "VIDEO_HEADER:in_video_header"
@@ -389,7 +461,7 @@ TEST(PacketResamplerCalculatorTest, SetVideoHeader) {
     options {
       [mediapipe.PacketResamplerCalculatorOptions.ext] { frame_rate: 50.0 }
     }
-  )"));
+  )pb"));
 
   for (const int64 ts : {0, 5000, 10010, 15001, 19990}) {
     runner.MutableInputs()->Tag("DATA").packets.push_back(
@@ -633,7 +705,7 @@ TEST(PacketResamplerCalculatorTest, OutputTimestampRangeAligned) {
 
 TEST(PacketResamplerCalculatorTest, OptionsSidePacket) {
   CalculatorGraphConfig::Node node_config =
-      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "PacketResamplerCalculator"
         input_side_packet: "OPTIONS:options"
         input_stream: "input"
@@ -643,16 +715,16 @@ TEST(PacketResamplerCalculatorTest, OptionsSidePacket) {
             frame_rate: 60
             base_timestamp: 0
           }
-        })");
+        })pb");
 
   {
     SimpleRunner runner(node_config);
     auto options =
         new CalculatorOptions(ParseTextProtoOrDie<CalculatorOptions>(
-            R"(
+            R"pb(
               [mediapipe.PacketResamplerCalculatorOptions.ext] {
                 frame_rate: 30
-              })"));
+              })pb"));
     runner.MutableSidePackets()->Tag("OPTIONS") = Adopt(options);
     runner.SetInput({-222, 15000, 32000, 49999, 150000});
     MP_ASSERT_OK(runner.Run());
@@ -662,12 +734,12 @@ TEST(PacketResamplerCalculatorTest, OptionsSidePacket) {
     SimpleRunner runner(node_config);
 
     auto options =
-        new CalculatorOptions(ParseTextProtoOrDie<CalculatorOptions>(R"(
+        new CalculatorOptions(ParseTextProtoOrDie<CalculatorOptions>(R"pb(
           merge_fields: false
           [mediapipe.PacketResamplerCalculatorOptions.ext] {
             frame_rate: 30
             base_timestamp: 0
-          })"));
+          })pb"));
     runner.MutableSidePackets()->Tag("OPTIONS") = Adopt(options);
 
     runner.SetInput({-222, 15000, 32000, 49999, 150000});

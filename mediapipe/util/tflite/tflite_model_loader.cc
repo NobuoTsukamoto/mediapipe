@@ -19,16 +19,15 @@
 
 namespace mediapipe {
 
-mediapipe::StatusOr<Packet> TfLiteModelLoader::LoadFromPath(
+absl::StatusOr<api2::Packet<TfLiteModelPtr>> TfLiteModelLoader::LoadFromPath(
     const std::string& path) {
   std::string model_path = path;
 
   ASSIGN_OR_RETURN(model_path, mediapipe::PathToResourceAsFile(model_path));
-
   auto model = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
   RET_CHECK(model) << "Failed to load model from path " << model_path;
-  return MakePacket<TfLiteModelPtr>(TfLiteModelPtr(
-      model.release(), [](tflite::FlatBufferModel* model) { delete model; }));
+  return api2::MakePacket<TfLiteModelPtr>(
+      model.release(), [](tflite::FlatBufferModel* model) { delete model; });
 }
 
 }  // namespace mediapipe

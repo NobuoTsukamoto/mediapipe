@@ -19,6 +19,9 @@ cc_library(
     srcs = ["util.cc"],
     hdrs = ["util.h"],
     features = ["-parse_headers"],
+    linkopts = [
+        "-framework Accelerate",
+    ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
         ":CFHolder",
@@ -69,6 +72,7 @@ objc_library(
         ":util",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:mediapipe_profiling",
+        "//mediapipe/framework/formats:image",
         "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:source_location",
@@ -261,9 +265,9 @@ exports_files(
     [
         "testdata/googlelogo_color_272x92dp.png",
         "testdata/googlelogo_color_272x92dp_luminance.png",
+        "testdata/sergey.png",
     ],
     visibility = [
-        "//mediapipe/feature_extraction/video/video_effects:__pkg__",
-        "//mediapipe/gpu:__pkg__",
+        "//mediapipe:__subpackages__",
     ],
 )

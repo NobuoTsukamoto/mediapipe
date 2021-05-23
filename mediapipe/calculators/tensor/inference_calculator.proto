@@ -51,12 +51,12 @@ message InferenceCalculatorOptions {
 
       // This option is valid for TFLite GPU delegate API2 only,
       // Choose any of available APIs to force running inference using it.
-      enum API {
+      enum Api {
         ANY = 0;
         OPENGL = 1;
         OPENCL = 2;
       }
-      optional API api = 4 [default = ANY];
+      optional Api api = 4 [default = ANY];
 
       // This option is valid for TFLite GPU delegate API2 only,
       // Set to true to use 16-bit float precision. If max precision is needed,
@@ -65,7 +65,8 @@ message InferenceCalculatorOptions {
 
       // Load pre-compiled serialized binary cache to accelerate init process.
       // Only available for OpenCL delegate on Android.
-      optional bool use_kernel_caching = 2 [default = false];
+      // Kernel caching will only be enabled if this path is set.
+      optional string cached_kernel_path = 2;
     }
     // Android only.
     message Nnapi {}
@@ -104,7 +105,11 @@ message InferenceCalculatorOptions {
   optional int32 cpu_num_thread = 4 [default = -1];
 
   // TfLite delegate to run inference.
-  // NOTE: calculator is free to choose delegate if not specified explicitly.
+  // If not specified, TFLite GPU delegate is used by default (as if "gpu {}"
+  // is specified) unless GPU support is disabled in the build (i.e., with
+  // --define MEDIAPIPE_DISABLE_GPU=1), in which case regular TFLite on CPU is
+  // used (as if "tflite {}" is specified) except when building with emscripten
+  // where xnnpack is used.
   // NOTE: use_gpu/use_nnapi are ignored if specified. (Delegate takes
   // precedence over use_* deprecated options.)
   optional Delegate delegate = 5;

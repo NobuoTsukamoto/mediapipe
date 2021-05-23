@@ -63,6 +63,7 @@ cc_library(
 cc_test(
     name = "optical_flow_field_test",
     srcs = ["optical_flow_field_test.cc"],
+    linkstatic = 1,
     deps = [
         ":optical_flow_field",
         "//mediapipe/framework/deps:file_path",
@@ -70,6 +71,7 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
+        "@com_google_absl//absl/flags:flag",
         "@org_tensorflow//tensorflow/core:framework",
     ],
 )

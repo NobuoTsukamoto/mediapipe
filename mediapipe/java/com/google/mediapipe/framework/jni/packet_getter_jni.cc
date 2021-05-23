@@ -21,12 +21,13 @@
 #include "mediapipe/framework/formats/video_stream_header.h"
 #include "mediapipe/framework/port/core_proto_inc.h"
 #include "mediapipe/framework/port/proto_ns.h"
+#include "mediapipe/gpu/gpu_buffer.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/colorspace.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/jni_util.h"
-#ifndef MEDIAPIPE_DISABLE_GPU
+#if !MEDIAPIPE_DISABLE_GPU
 #include "mediapipe/gpu/gl_calculator_helper.h"
-#endif  // !defined(MEDIAPIPE_DISABLE_GPU)
+#endif  // !MEDIAPIPE_DISABLE_GPU
 
 namespace {
 using mediapipe::android::SerializedMessageIds;
@@ -152,7 +153,7 @@ JNIEXPORT void JNICALL PACKET_GETTER_METHOD(nativeGetProto)(JNIEnv* env,
                                                             jobject result) {
   mediapipe::Packet mediapipe_packet =
       mediapipe::android::Graph::GetPacketFromHandle(packet);
-  mediapipe::Status status = mediapipe_packet.ValidateAsProtoMessageLite();
+  absl::Status status = mediapipe_packet.ValidateAsProtoMessageLite();
   if (!ThrowIfError(env, status)) {
     // Convert type_name and value to Java data.
     const auto& proto_message = mediapipe_packet.GetProtoMessageLite();
@@ -182,7 +183,7 @@ JNIEXPORT jobjectArray JNICALL PACKET_GETTER_METHOD(nativeGetProtoVector)(
         env, get_proto_vector.status()));
   }
   const std::vector<const ::mediapipe::proto_ns::MessageLite*>& proto_vector =
-      get_proto_vector.ValueOrDie();
+      get_proto_vector.value();
   jobjectArray proto_array =
       env->NewObjectArray(proto_vector.size(), env->FindClass("[B"), nullptr);
   for (int i = 0; i < proto_vector.size(); ++i) {
@@ -255,22 +256,43 @@ JNIEXPORT jdoubleArray JNICALL PACKET_GETTER_METHOD(nativeGetFloat64Vector)(
 JNIEXPORT jint JNICALL PACKET_GETTER_METHOD(nativeGetImageWidth)(JNIEnv* env,
                                                                  jobject thiz,
                                                                  jlong packet) {
+  mediapipe::Packet mediapipe_packet =
+      mediapipe::android::Graph::GetPacketFromHandle(packet);
+  const bool is_image =
+      mediapipe_packet.ValidateAsType<mediapipe::Image>().ok();
   const mediapipe::ImageFrame& image =
-      GetFromNativeHandle<mediapipe::ImageFrame>(packet);
+      is_image ? *GetFromNativeHandle<mediapipe::Image>(packet)
+                      .GetImageFrameSharedPtr()
+                      .get()
+               : GetFromNativeHandle<mediapipe::ImageFrame>(packet);
   return image.Width();
 }
 
 JNIEXPORT jint JNICALL PACKET_GETTER_METHOD(nativeGetImageHeight)(
     JNIEnv* env, jobject thiz, jlong packet) {
+  mediapipe::Packet mediapipe_packet =
+      mediapipe::android::Graph::GetPacketFromHandle(packet);
+  const bool is_image =
+      mediapipe_packet.ValidateAsType<mediapipe::Image>().ok();
   const mediapipe::ImageFrame& image =
-      GetFromNativeHandle<mediapipe::ImageFrame>(packet);
+      is_image ? *GetFromNativeHandle<mediapipe::Image>(packet)
+                      .GetImageFrameSharedPtr()
+                      .get()
+               : GetFromNativeHandle<mediapipe::ImageFrame>(packet);
   return image.Height();
 }
 
 JNIEXPORT jboolean JNICALL PACKET_GETTER_METHOD(nativeGetImageData)(
     JNIEnv* env, jobject thiz, jlong packet, jobject byte_buffer) {
+  mediapipe::Packet mediapipe_packet =
+      mediapipe::android::Graph::GetPacketFromHandle(packet);
+  const bool is_image =
+      mediapipe_packet.ValidateAsType<mediapipe::Image>().ok();
   const mediapipe::ImageFrame& image =
-      GetFromNativeHandle<mediapipe::ImageFrame>(packet);
+      is_image ? *GetFromNativeHandle<mediapipe::Image>(packet)
+                      .GetImageFrameSharedPtr()
+                      .get()
+               : GetFromNativeHandle<mediapipe::ImageFrame>(packet);
 
   int64_t buffer_size = env->GetDirectBufferCapacity(byte_buffer);
 
@@ -403,7 +425,7 @@ JNIEXPORT jint JNICALL PACKET_GETTER_METHOD(nativeGetMatrixCols)(JNIEnv* env,
   return GetFromNativeHandle<mediapipe::Matrix>(packet).cols();
 }
 
-#ifndef MEDIAPIPE_DISABLE_GPU
+#if !MEDIAPIPE_DISABLE_GPU
 
 JNIEXPORT jint JNICALL PACKET_GETTER_METHOD(nativeGetGpuBufferName)(
     JNIEnv* env, jobject thiz, jlong packet) {
@@ -418,13 +440,20 @@ JNIEXPORT jint JNICALL PACKET_GETTER_METHOD(nativeGetGpuBufferName)(
 JNIEXPORT jlong JNICALL PACKET_GETTER_METHOD(nativeGetGpuBuffer)(JNIEnv* env,
                                                                  jobject thiz,
                                                                  jlong packet) {
-  const mediapipe::GpuBuffer& gpu_buffer =
-      GetFromNativeHandle<mediapipe::GpuBuffer>(packet);
-  const mediapipe::GlTextureBufferSharedPtr& ptr =
-      gpu_buffer.GetGlTextureBufferSharedPtr();
+  mediapipe::Packet mediapipe_packet =
+      mediapipe::android::Graph::GetPacketFromHandle(packet);
+  mediapipe::GlTextureBufferSharedPtr ptr;
+  if (mediapipe_packet.ValidateAsType<mediapipe::Image>().ok()) {
+    const mediapipe::Image& buffer = mediapipe_packet.Get<mediapipe::Image>();
+    ptr = buffer.GetGlTextureBufferSharedPtr();
+  } else {
+    const mediapipe::GpuBuffer& buffer =
+        mediapipe_packet.Get<mediapipe::GpuBuffer>();
+    ptr = buffer.GetGlTextureBufferSharedPtr();
+  }
   ptr->WaitUntilComplete();
   return reinterpret_cast<intptr_t>(
       new mediapipe::GlTextureBufferSharedPtr(ptr));
 }
 
-#endif  // !defined(MEDIAPIPE_DISABLE_GPU)
+#endif  // !MEDIAPIPE_DISABLE_GPU

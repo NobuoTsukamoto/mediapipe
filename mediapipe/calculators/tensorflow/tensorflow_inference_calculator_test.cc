@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_inference_calculator.pb.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_frozen_graph_generator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"

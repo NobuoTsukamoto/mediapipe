@@ -17,11 +17,12 @@
 #include <cstdlib>
 #include <memory>
 
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/port/canonical_errors.h"
-#include "mediapipe/framework/port/commandlineflags.h"
 #include "mediapipe/framework/port/file_helpers.h"
 #include "mediapipe/framework/port/opencv_highgui_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
@@ -38,27 +39,25 @@ constexpr char kCalculatorGraphConfigFile[] =
     "mediapipe/graphs/iris_tracking/iris_depth_cpu.pbtxt";
 constexpr float kMicrosPerSecond = 1e6;
 
-DEFINE_string(input_image_path, "",
-              "Full path of image to load. "
-              "If not provided, nothing will run.");
-DEFINE_string(output_image_path, "",
-              "Full path of where to save image result (.jpg only). "
-              "If not provided, show result in a window.");
+ABSL_FLAG(std::string, input_image_path, "",
+          "Full path of image to load. "
+          "If not provided, nothing will run.");
+ABSL_FLAG(std::string, output_image_path, "",
+          "Full path of where to save image result (.jpg only). "
+          "If not provided, show result in a window.");
 
 namespace {
 
-mediapipe::StatusOr<std::string> ReadFileToString(
-    const std::string& file_path) {
+absl::StatusOr<std::string> ReadFileToString(const std::string& file_path) {
   std::string contents;
   MP_RETURN_IF_ERROR(mediapipe::file::GetContents(file_path, &contents));
   return contents;
 }
 
-mediapipe::Status ProcessImage(
-    std::unique_ptr<mediapipe::CalculatorGraph> graph) {
+absl::Status ProcessImage(std::unique_ptr<mediapipe::CalculatorGraph> graph) {
   LOG(INFO) << "Load the image.";
   ASSIGN_OR_RETURN(const std::string raw_image,
-                   ReadFileToString(FLAGS_input_image_path));
+                   ReadFileToString(absl::GetFlag(FLAGS_input_image_path)));
 
   LOG(INFO) << "Start running the calculator graph.";
   ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller output_image_poller,
@@ -80,7 +79,7 @@ mediapipe::Status ProcessImage(
   // Get the graph result packets, or stop if that fails.
   mediapipe::Packet left_iris_depth_packet;
   if (!left_iris_depth_poller.Next(&left_iris_depth_packet)) {
-    return mediapipe::UnknownError(
+    return absl::UnknownError(
         "Failed to get packet from output stream 'left_iris_depth_mm'.");
   }
   const auto& left_iris_depth_mm = left_iris_depth_packet.Get<float>();
@@ -89,7 +88,7 @@ mediapipe::Status ProcessImage(
 
   mediapipe::Packet right_iris_depth_packet;
   if (!right_iris_depth_poller.Next(&right_iris_depth_packet)) {
-    return mediapipe::UnknownError(
+    return absl::UnknownError(
         "Failed to get packet from output stream 'right_iris_depth_mm'.");
   }
   const auto& right_iris_depth_mm = right_iris_depth_packet.Get<float>();
@@ -99,7 +98,7 @@ mediapipe::Status ProcessImage(
 
   mediapipe::Packet output_image_packet;
   if (!output_image_poller.Next(&output_image_packet)) {
-    return mediapipe::UnknownError(
+    return absl::UnknownError(
         "Failed to get packet from output stream 'output_image'.");
   }
   auto& output_frame = output_image_packet.Get<mediapipe::ImageFrame>();
@@ -107,10 +106,10 @@ mediapipe::Status ProcessImage(
   // Convert back to opencv for display or saving.
   cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
   cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
-  const bool save_image = !FLAGS_output_image_path.empty();
+  const bool save_image = !absl::GetFlag(FLAGS_output_image_path).empty();
   if (save_image) {
     LOG(INFO) << "Saving image to file...";
-    cv::imwrite(FLAGS_output_image_path, output_frame_mat);
+    cv::imwrite(absl::GetFlag(FLAGS_output_image_path), output_frame_mat);
   } else {
     cv::namedWindow(kWindowName, /*flags=WINDOW_AUTOSIZE*/ 1);
     cv::imshow(kWindowName, output_frame_mat);
@@ -123,7 +122,7 @@ mediapipe::Status ProcessImage(
   return graph->WaitUntilDone();
 }
 
-mediapipe::Status RunMPPGraph() {
+absl::Status RunMPPGraph() {
   std::string calculator_graph_config_contents;
   MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
       kCalculatorGraphConfigFile, &calculator_graph_config_contents));
@@ -138,11 +137,11 @@ mediapipe::Status RunMPPGraph() {
       absl::make_unique<mediapipe::CalculatorGraph>();
   MP_RETURN_IF_ERROR(graph->Initialize(config));
 
-  const bool load_image = !FLAGS_input_image_path.empty();
+  const bool load_image = !absl::GetFlag(FLAGS_input_image_path).empty();
   if (load_image) {
     return ProcessImage(std::move(graph));
   } else {
-    return mediapipe::InvalidArgumentError("Missing image file.");
+    return absl::InvalidArgumentError("Missing image file.");
   }
 }
 
@@ -150,8 +149,8 @@ mediapipe::Status RunMPPGraph() {
 
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  mediapipe::Status run_status = RunMPPGraph();
+  absl::ParseCommandLine(argc, argv);
+  absl::Status run_status = RunMPPGraph();
   if (!run_status.ok()) {
     LOG(ERROR) << "Failed to run the graph: " << run_status.message();
     return EXIT_FAILURE;

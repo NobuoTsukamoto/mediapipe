@@ -14,8 +14,8 @@
     "mediapipe/examples/ios/iristrackinggpu/BUILD",
     "mediapipe/examples/ios/objectdetectioncpu/BUILD",
     "mediapipe/examples/ios/objectdetectiongpu/BUILD",
+    "mediapipe/examples/ios/objectdetectiontrackinggpu/BUILD",
     "mediapipe/examples/ios/posetrackinggpu/BUILD",
-    "mediapipe/examples/ios/upperbodyposetrackinggpu/BUILD",
     "mediapipe/framework/BUILD",
     "mediapipe/gpu/BUILD",
     "mediapipe/objc/BUILD",
@@ -33,8 +33,8 @@
     "//mediapipe/examples/ios/iristrackinggpu:IrisTrackingGpuApp",
     "//mediapipe/examples/ios/objectdetectioncpu:ObjectDetectionCpuApp",
     "//mediapipe/examples/ios/objectdetectiongpu:ObjectDetectionGpuApp",
+    "//mediapipe/examples/ios/objectdetectiontrackinggpu:ObjectDetectionTrackingGpuApp",
     "//mediapipe/examples/ios/posetrackinggpu:PoseTrackingGpuApp",
-    "//mediapipe/examples/ios/upperbodyposetrackinggpu:UpperBodyPoseTrackingGpuApp",
     "//mediapipe/objc:mediapipe_framework_ios"
   ],
   "optionSet" : {
@@ -103,7 +103,6 @@
     "mediapipe/examples/ios/objectdetectioncpu",
     "mediapipe/examples/ios/objectdetectiongpu",
     "mediapipe/examples/ios/posetrackinggpu",
-    "mediapipe/examples/ios/upperbodyposetrackinggpu",
     "mediapipe/framework",
     "mediapipe/framework/deps",
     "mediapipe/framework/formats",

@@ -98,14 +98,11 @@ class InferenceState {
 
 // This calculator performs inference on a trained TensorFlow model.
 //
-// Additional documentation and examples at
-// go/mediapipe/tensorflow_in_mediapipe.
-//
 // TensorFlow Sessions can be created from checkpoint paths, frozen models, or
-// the SavedModel system (go/saved-model). See the TensorFlowSessionFrom*
-// packet generators for details. Each of these methods defines a mapping
-// between MediaPipe streams and TensorFlow tensors. All of this information is
-// passed in as an input_side_packet.
+// the SavedModel system. See the TensorFlowSessionFrom* packet generators for
+// details. Each of these methods defines a mapping between MediaPipe streams
+// and TensorFlow tensors. All of this information is passed in as an
+// input_side_packet.
 //
 // The input and output streams are TensorFlow tensors labeled by tags. The tags
 // for the streams are matched to feeds and fetchs in a TensorFlow session using
@@ -234,7 +231,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
         mediapipe::MonotonicClock::CreateSynchronizedMonotonicClock());
   }
 
-  static mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     const auto& options = cc->Options<TensorFlowInferenceCalculatorOptions>();
     RET_CHECK(!cc->Inputs().GetTags().empty());
     for (const std::string& tag : cc->Inputs().GetTags()) {
@@ -261,7 +258,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           .Tag("RECURRENT_INIT_TENSORS")
           .Set<std::unique_ptr<std::map<std::string, tf::Tensor>>>();
     }
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   std::unique_ptr<InferenceState> CreateInferenceState(CalculatorContext* cc)
@@ -280,7 +277,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
     return inference_state;
   }
 
-  mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     options_ = cc->Options<TensorFlowInferenceCalculatorOptions>();
 
     RET_CHECK(cc->InputSidePackets().HasTag("SESSION"));
@@ -335,12 +332,12 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
       cc->SetOffset(0);
     }
 
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   // Adds a batch dimension to the input tensor if specified in the calculator
   // options.
-  mediapipe::Status AddBatchDimension(tf::Tensor* input_tensor) {
+  absl::Status AddBatchDimension(tf::Tensor* input_tensor) {
     if (options_.add_batch_dim_to_tensors()) {
       tf::TensorShape new_shape(input_tensor->shape());
       new_shape.InsertDim(0, 1);
@@ -348,10 +345,10 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           << "Could not add 0th dimension to tensor without changing its shape."
           << " Current shape: " << input_tensor->shape().DebugString();
     }
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  mediapipe::Status AggregateTensorPacket(
+  absl::Status AggregateTensorPacket(
       const std::string& tag_name, const Packet& packet,
       std::map<Timestamp, std::map<std::string, tf::Tensor>>*
           input_tensors_by_tag_by_timestamp,
@@ -366,12 +363,12 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
     }
     (*input_tensors_by_tag_by_timestamp)[packet.Timestamp()].insert(
         std::make_pair(tag_name, input_tensor));
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   // Removes the batch dimension of the output tensor if specified in the
   // calculator options.
-  mediapipe::Status RemoveBatchDimension(tf::Tensor* output_tensor) {
+  absl::Status RemoveBatchDimension(tf::Tensor* output_tensor) {
     if (options_.add_batch_dim_to_tensors()) {
       tf::TensorShape new_shape(output_tensor->shape());
       new_shape.RemoveDim(0);
@@ -380,10 +377,10 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           << "shape. Current shape: " << output_tensor->shape().DebugString()
           << " (The expected first dimension is 1 for a batch element.)";
     }
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     std::unique_ptr<InferenceState> inference_state_to_process;
     {
       absl::WriterMutexLock l(&mutex_);
@@ -397,9 +394,9 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           // Recurrent tensors can be empty.
           if (!mediapipe::ContainsKey(recurrent_feed_tags_, tag_as_node_name)) {
             if (options_.skip_on_missing_features()) {
-              return mediapipe::OkStatus();
+              return absl::OkStatus();
             } else {
-              return mediapipe::InvalidArgumentError(absl::StrCat(
+              return absl::InvalidArgumentError(absl::StrCat(
                   "Tag ", tag_as_node_name,
                   " not present at timestamp: ", cc->InputTimestamp().Value()));
             }
@@ -408,7 +405,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           const auto& tensor_packets =
               cc->Inputs().Tag(tag_as_node_name).Get<std::vector<Packet>>();
           if (tensor_packets.size() > options_.batch_size()) {
-            return mediapipe::InvalidArgumentError(absl::StrCat(
+            return absl::InvalidArgumentError(absl::StrCat(
                 "Batch for tag ", tag_as_node_name,
                 " has more packets than batch capacity. batch_size: ",
                 options_.batch_size(), " packets: ", tensor_packets.size()));
@@ -446,10 +443,10 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
           OutputBatch(cc, std::move(inference_state_to_process)));
     }
 
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  mediapipe::Status Close(CalculatorContext* cc) override {
+  absl::Status Close(CalculatorContext* cc) override {
     std::unique_ptr<InferenceState> inference_state_to_process = nullptr;
     {
       absl::WriterMutexLock l(&mutex_);
@@ -463,7 +460,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
       MP_RETURN_IF_ERROR(
           OutputBatch(cc, std::move(inference_state_to_process)));
     }
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   // When a batch of input tensors is ready to be run, runs TensorFlow and
@@ -474,8 +471,8 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
   // memory buffer. Therefore, copies are cheap and should not cause the memory
   // buffer to fall out of scope. In contrast, concat is only used where
   // necessary.
-  mediapipe::Status OutputBatch(
-      CalculatorContext* cc, std::unique_ptr<InferenceState> inference_state) {
+  absl::Status OutputBatch(CalculatorContext* cc,
+                           std::unique_ptr<InferenceState> inference_state) {
     const int64 start_time = absl::ToUnixMicros(clock_->TimeNow());
     std::vector<std::pair<mediapipe::ProtoString, tf::Tensor>> input_tensors;
 
@@ -605,7 +602,7 @@ class TensorFlowInferenceCalculator : public CalculatorBase {
       inference_state_->batch_timestamps_.clear();
     }
 
-    return mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:

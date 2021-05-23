@@ -111,7 +111,23 @@ std::string JStringToStdString(JNIEnv* env, jstring jstr) {
   return str;
 }
 
-jthrowable CreateMediaPipeException(JNIEnv* env, mediapipe::Status status) {
+// Converts a `java.util.List<String>` to a `std::vector<std::string>`.
+std::vector<std::string> JavaListToStdStringVector(JNIEnv* env, jobject from) {
+  jclass cls = env->FindClass("java/util/List");
+  int size = env->CallIntMethod(from, env->GetMethodID(cls, "size", "()I"));
+  std::vector<std::string> result;
+  result.reserve(size);
+  for (int i = 0; i < size; i++) {
+    jobject element = env->CallObjectMethod(
+        from, env->GetMethodID(cls, "get", "(I)Ljava/lang/Object;"), i);
+    result.push_back(JStringToStdString(env, static_cast<jstring>(element)));
+    env->DeleteLocalRef(element);
+  }
+  env->DeleteLocalRef(cls);
+  return result;
+}
+
+jthrowable CreateMediaPipeException(JNIEnv* env, absl::Status status) {
   auto& class_registry = mediapipe::android::ClassRegistry::GetInstance();
   std::string mpe_class_name = class_registry.GetClassName(
       mediapipe::android::ClassRegistry::kMediaPipeExceptionClassName);
@@ -131,7 +147,7 @@ jthrowable CreateMediaPipeException(JNIEnv* env, mediapipe::Status status) {
       env->NewObject(status_cls, status_ctr, status.code(), message_bytes));
 }
 
-bool ThrowIfError(JNIEnv* env, mediapipe::Status status) {
+bool ThrowIfError(JNIEnv* env, absl::Status status) {
   if (!status.ok()) {
     env->Throw(mediapipe::android::CreateMediaPipeException(env, status));
     return true;

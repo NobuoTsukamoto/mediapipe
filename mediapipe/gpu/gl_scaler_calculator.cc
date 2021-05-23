@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/tool/options_util.h"
@@ -32,6 +33,8 @@ typedef int DimensionsPacketType[2];
 #endif
 
 namespace mediapipe {
+
+using Image = mediapipe::Image;
 
 // Scales, rotates, horizontal or vertical flips the image.
 // See GlSimpleCalculatorBase for inputs, outputs and input side packets.
@@ -66,13 +69,13 @@ class GlScalerCalculator : public CalculatorBase {
   GlScalerCalculator() {}
   ~GlScalerCalculator();
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
-  ::mediapipe::Status GlSetup();
-  ::mediapipe::Status GlRender(const GlTexture& src, const GlTexture& dst);
+  absl::Status GlSetup();
+  absl::Status GlRender(const GlTexture& src, const GlTexture& dst);
   void GetOutputDimensions(int src_width, int src_height, int* dst_width,
                            int* dst_height);
   void GetOutputPadding(int src_width, int src_height, int dst_width,
@@ -98,9 +101,18 @@ class GlScalerCalculator : public CalculatorBase {
 REGISTER_CALCULATOR(GlScalerCalculator);
 
 // static
-::mediapipe::Status GlScalerCalculator::GetContract(CalculatorContract* cc) {
-  TagOrIndex(&cc->Inputs(), "VIDEO", 0).Set<GpuBuffer>();
-  TagOrIndex(&cc->Outputs(), "VIDEO", 0).Set<GpuBuffer>();
+absl::Status GlScalerCalculator::GetContract(CalculatorContract* cc) {
+  if (cc->Inputs().HasTag("IMAGE")) {
+    cc->Inputs().Tag("IMAGE").Set<Image>();
+  } else {
+    TagOrIndex(&cc->Inputs(), "VIDEO", 0).Set<GpuBuffer>();
+  }
+  if (cc->Outputs().HasTag("IMAGE")) {
+    cc->Outputs().Tag("IMAGE").Set<Image>();
+  } else {
+    TagOrIndex(&cc->Outputs(), "VIDEO", 0).Set<GpuBuffer>();
+  }
+
   if (cc->Inputs().HasTag("ROTATION")) {
     cc->Inputs().Tag("ROTATION").Set<int>();
   }
@@ -126,10 +138,10 @@ REGISTER_CALCULATOR(GlScalerCalculator);
     cc->Outputs().Tag("TOP_BOTTOM_PADDING").Set<float>();
     cc->Outputs().Tag("LEFT_RIGHT_PADDING").Set<float>();
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status GlScalerCalculator::Open(CalculatorContext* cc) {
+absl::Status GlScalerCalculator::Open(CalculatorContext* cc) {
   // Inform the framework that we always output at the same timestamp
   // as we receive a packet at.
   cc->SetOffset(mediapipe::TimestampDiff(0));
@@ -181,14 +193,14 @@ REGISTER_CALCULATOR(GlScalerCalculator);
 
   MP_RETURN_IF_ERROR(FrameRotationFromInt(&rotation_, rotation_ccw));
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status GlScalerCalculator::Process(CalculatorContext* cc) {
+absl::Status GlScalerCalculator::Process(CalculatorContext* cc) {
   if (cc->Inputs().HasTag("OUTPUT_DIMENSIONS")) {
     if (cc->Inputs().Tag("OUTPUT_DIMENSIONS").IsEmpty()) {
       // OUTPUT_DIMENSIONS input stream is specified, but value is missing.
-      return ::mediapipe::OkStatus();
+      return absl::OkStatus();
     }
 
     const auto& dimensions =
@@ -197,8 +209,11 @@ REGISTER_CALCULATOR(GlScalerCalculator);
     dst_height_ = dimensions[1];
   }
 
-  return helper_.RunInGlContext([this, cc]() -> ::mediapipe::Status {
-    const auto& input = TagOrIndex(cc->Inputs(), "VIDEO", 0).Get<GpuBuffer>();
+  return helper_.RunInGlContext([this, cc]() -> absl::Status {
+    const auto& input =
+        cc->Inputs().HasTag("IMAGE")
+            ? cc->Inputs().Tag("IMAGE").Get<Image>().GetGpuBuffer()
+            : TagOrIndex(cc->Inputs(), "VIDEO", 0).Get<GpuBuffer>();
     QuadRenderer* renderer = nullptr;
     GlTexture src1;
     GlTexture src2;
@@ -289,12 +304,16 @@ REGISTER_CALCULATOR(GlScalerCalculator);
 
     glFlush();
 
-    auto output = dst.GetFrame<GpuBuffer>();
+    if (cc->Outputs().HasTag("IMAGE")) {
+      auto output = dst.GetFrame<Image>();
+      cc->Outputs().Tag("IMAGE").Add(output.release(), cc->InputTimestamp());
+    } else {
+      auto output = dst.GetFrame<GpuBuffer>();
+      TagOrIndex(&cc->Outputs(), "VIDEO", 0)
+          .Add(output.release(), cc->InputTimestamp());
+    }
 
-    TagOrIndex(&cc->Outputs(), "VIDEO", 0)
-        .Add(output.release(), cc->InputTimestamp());
-
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   });
 }
 

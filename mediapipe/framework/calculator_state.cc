@@ -61,8 +61,9 @@ Counter* CalculatorState::GetCounter(const std::string& name) {
   return counter_factory_->GetCounter(absl::StrCat(NodeName(), "-", name));
 }
 
-void CalculatorState::SetServicePacket(const std::string& key, Packet packet) {
-  service_packets_[key] = std::move(packet);
+CounterFactory* CalculatorState::GetCounterFactory() {
+  CHECK(counter_factory_);
+  return counter_factory_;
 }
 
 }  // namespace mediapipe

@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """MediaPipe SolutionBase module.
 
 MediaPipe SolutionBase is the common base class for the high-level MediaPipe
@@ -45,6 +44,8 @@ from mediapipe.calculators.util import thresholding_calculator_pb2
 from mediapipe.framework.formats import classification_pb2
 from mediapipe.framework.formats import landmark_pb2
 from mediapipe.framework.formats import rect_pb2
+from mediapipe.modules.objectron.calculators import annotation_data_pb2
+from mediapipe.modules.objectron.calculators import lift_2d_frame_annotation_to_3d_calculator_pb2
 # pylint: enable=unused-import
 from mediapipe.python._framework_bindings import calculator_graph
 from mediapipe.python._framework_bindings import image_frame
@@ -71,6 +72,9 @@ CALCULATOR_TO_OPTIONS = {
     'TensorsToDetectionsCalculator':
         tensors_to_detections_calculator_pb2
         .TensorsToDetectionsCalculatorOptions,
+    'Lift2DFrameAnnotationTo3DCalculator':
+        lift_2d_frame_annotation_to_3d_calculator_pb2
+        .Lift2DFrameAnnotationTo3DCalculatorOptions,
 }
 
 
@@ -83,8 +87,10 @@ class _PacketDataType(enum.Enum):
   BOOL_LIST = 'bool_list'
   INT = 'int'
   FLOAT = 'float'
+  FLOAT_LIST = 'float_list'
   AUDIO = 'matrix'
-  IMAGE = 'image_frame'
+  IMAGE = 'image'
+  IMAGE_FRAME = 'image_frame'
   PROTO = 'proto'
   PROTO_LIST = 'proto_list'
 
@@ -104,10 +110,12 @@ NAME_TO_TYPE: Mapping[str, '_PacketDataType'] = {
         _PacketDataType.INT,
     'float':
         _PacketDataType.FLOAT,
+    '::std::vector<float>':
+        _PacketDataType.FLOAT_LIST,
     '::mediapipe::Matrix':
         _PacketDataType.AUDIO,
     '::mediapipe::ImageFrame':
-        _PacketDataType.IMAGE,
+        _PacketDataType.IMAGE_FRAME,
     '::mediapipe::Classification':
         _PacketDataType.PROTO,
     '::mediapipe::ClassificationList':
@@ -118,7 +126,11 @@ NAME_TO_TYPE: Mapping[str, '_PacketDataType'] = {
         _PacketDataType.PROTO,
     '::mediapipe::Landmark':
         _PacketDataType.PROTO,
+    '::mediapipe::LandmarkList':
+        _PacketDataType.PROTO,
     '::mediapipe::NormalizedLandmark':
+        _PacketDataType.PROTO,
+    '::mediapipe::FrameAnnotation':
         _PacketDataType.PROTO,
     '::mediapipe::Trigger':
         _PacketDataType.PROTO,
@@ -128,6 +140,8 @@ NAME_TO_TYPE: Mapping[str, '_PacketDataType'] = {
         _PacketDataType.PROTO,
     '::mediapipe::NormalizedLandmarkList':
         _PacketDataType.PROTO,
+    '::mediapipe::Image':
+        _PacketDataType.IMAGE,
     '::std::vector<::mediapipe::Classification>':
         _PacketDataType.PROTO_LIST,
     '::std::vector<::mediapipe::ClassificationList>':
@@ -137,6 +151,8 @@ NAME_TO_TYPE: Mapping[str, '_PacketDataType'] = {
     '::std::vector<::mediapipe::DetectionList>':
         _PacketDataType.PROTO_LIST,
     '::std::vector<::mediapipe::Landmark>':
+        _PacketDataType.PROTO_LIST,
+    '::std::vector<::mediapipe::LandmarkList>':
         _PacketDataType.PROTO_LIST,
     '::std::vector<::mediapipe::NormalizedLandmark>':
         _PacketDataType.PROTO_LIST,
@@ -157,15 +173,14 @@ class SolutionBase:
   shutdown.
 
   Example usage:
-    hand_tracker = solution_base.SolutionBase(
-      binary_graph_path='mediapipe/modules/hand_landmark/hand_landmark_tracking_cpu.binarypb',
-      side_inputs={'num_hands': 2})
-    # Read an image and convert the BGR image to RGB.
-    input_image = cv2.cvtColor(cv2.imread('/tmp/hand.png'), COLOR_BGR2RGB)
-    results = hand_tracker.process(input_image)
-    print(results.palm_detections)
-    print(results.multi_hand_landmarks)
-    hand_tracker.close()
+    with solution_base.SolutionBase(
+        binary_graph_path='mediapipe/modules/hand_landmark/hand_landmark_tracking_cpu.binarypb',
+        side_inputs={'num_hands': 2}) as hand_tracker:
+      # Read an image and convert the BGR image to RGB.
+      input_image = cv2.cvtColor(cv2.imread('/tmp/hand.png'), COLOR_BGR2RGB)
+      results = hand_tracker.process(input_image)
+      print(results.palm_detections)
+      print(results.multi_hand_landmarks)
   """
 
   def __init__(
@@ -230,7 +245,7 @@ class SolutionBase:
       self._graph_outputs[stream_name] = output_packet
 
     for stream_name in self._output_stream_type_info.keys():
-      self._graph.observe_output_stream(stream_name, callback)
+      self._graph.observe_output_stream(stream_name, callback, True)
 
     input_side_packets = {
         name: self._make_packet(self._side_input_type_info[name], data)
@@ -284,12 +299,14 @@ class SolutionBase:
     # input.
     self._simulated_timestamp += 33333
     for stream_name, data in input_dict.items():
-      if self._input_stream_type_info[stream_name] == _PacketDataType.IMAGE:
+      input_stream_type = self._input_stream_type_info[stream_name]
+      if (input_stream_type == _PacketDataType.IMAGE_FRAME or
+          input_stream_type == _PacketDataType.IMAGE):
         if data.shape[2] != RGB_CHANNELS:
           raise ValueError('Input image must contain three channel rgb data.')
         self._graph.add_packet_to_input_stream(
             stream=stream_name,
-            packet=self._make_packet(_PacketDataType.IMAGE,
+            packet=self._make_packet(input_stream_type,
                                      data).at(self._simulated_timestamp))
       else:
         # TODO: Support audio data.
@@ -464,18 +481,42 @@ class SolutionBase:
 
   def _make_packet(self, packet_data_type: _PacketDataType,
                    data: Any) -> packet.Packet:
-    if packet_data_type == _PacketDataType.IMAGE:
-      return packet_creator.create_image_frame(
+    if (packet_data_type == _PacketDataType.IMAGE_FRAME or
+        packet_data_type == _PacketDataType.IMAGE):
+      return getattr(packet_creator, 'create_' + packet_data_type.value)(
           data, image_format=image_frame.ImageFormat.SRGB)
     else:
       return getattr(packet_creator, 'create_' + packet_data_type.value)(data)
 
   def _get_packet_content(self, packet_data_type: _PacketDataType,
                           output_packet: packet.Packet) -> Any:
+    """Gets packet content from a packet by type.
+
+    Args:
+      packet_data_type: The supported packet data type.
+      output_packet: The packet to get content from.
+
+    Returns:
+      Packet content by packet data type. None to indicate "no output".
+
+    """
+
+    if output_packet.is_empty():
+      return None
     if packet_data_type == _PacketDataType.STRING:
       return packet_getter.get_str(output_packet)
-    elif packet_data_type == _PacketDataType.IMAGE:
-      return packet_getter.get_image_frame(output_packet).numpy_view()
+    elif (packet_data_type == _PacketDataType.IMAGE_FRAME or
+          packet_data_type == _PacketDataType.IMAGE):
+      return getattr(packet_getter, 'get_' +
+                     packet_data_type.value)(output_packet).numpy_view()
     else:
       return getattr(packet_getter, 'get_' + packet_data_type.value)(
           output_packet)
+
+  def __enter__(self):
+    """A "with" statement support."""
+    return self
+
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    """Closes all the input sources and the graph."""
+    self.close()

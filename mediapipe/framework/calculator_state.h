@@ -27,6 +27,7 @@
 #include "mediapipe/framework/counter.h"
 #include "mediapipe/framework/counter_factory.h"
 #include "mediapipe/framework/graph_service.h"
+#include "mediapipe/framework/graph_service_manager.h"
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/packet_set.h"
 #include "mediapipe/framework/port.h"
@@ -78,6 +79,11 @@ class CalculatorState {
   // name is the passed-in name, prefixed by the calculator NodeName.
   Counter* GetCounter(const std::string& name);
 
+  // Returns a counter set, which can be passed to other classes, to generate
+  // counters.  NOTE: This differs from GetCounter, in that the counters
+  // created by this counter set do not have the NodeName prefix.
+  CounterFactory* GetCounterFactory();
+
   std::shared_ptr<ProfilingContext> GetSharedProfilingContext() const {
     return profiling_context_;
   }
@@ -94,17 +100,14 @@ class CalculatorState {
     counter_factory_ = counter_factory;
   }
 
-  void SetServicePacket(const std::string& key, Packet packet);
-
-  bool IsServiceAvailable(const GraphServiceBase& service) {
-    return ContainsKey(service_packets_, service.key);
+  absl::Status SetServicePacket(const GraphServiceBase& service,
+                                Packet packet) {
+    return graph_service_manager_.SetServicePacket(service, packet);
   }
 
   template <typename T>
-  T& GetServiceObject(const GraphService<T>& service) {
-    auto it = service_packets_.find(service.key);
-    CHECK(it != service_packets_.end());
-    return *it->second.template Get<std::shared_ptr<T>>();
+  std::shared_ptr<T> GetServiceObject(const GraphService<T>& service) {
+    return graph_service_manager_.GetServiceObject(service);
   }
 
  private:
@@ -124,7 +127,7 @@ class CalculatorState {
   // The graph tracing and profiling interface.
   std::shared_ptr<ProfilingContext> profiling_context_;
 
-  std::map<std::string, Packet> service_packets_;
+  GraphServiceManager graph_service_manager_;
 
   ////////////////////////////////////////
   // Variables which ARE cleared by ResetBetweenRuns().
